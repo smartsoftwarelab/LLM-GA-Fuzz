@@ -1,0 +1,66 @@
+You are a code reviewer assisting with fuzzing harness generation. Given a function example, your task is to determine whether it is a good example, 
+
+Are all arguments to the target function(s) either:
+    a) Constructed or initialized within the example function, or
+    b) Simple built-in types (e.g., int, char*, float) passed from the example function. 
+
+Complex arguments like struct, class can not be passed from the example function to the target function since we do not know how to initize it.
+As along as the example function shows the creation of the arguments in the target function, it is a good example.
+We do not care about the arguments of the example function. The example function can also rely on external functions, varibales 
+
+<Function Signature>
+int get_src_address_socket(sip_msg_t *m, str *ssock);
+
+<Good Examples>
+
+int test_demo(const uint8_t *data, size_t size) {
+    sip_msg_t orig_inv = { };
+    orig_inv.buf = (char*)data;
+    orig_inv.len = size;
+
+    if(size >= 4*BUF_SIZE) {
+        /* test with larger message than core accepts, but not indefinitely large */
+        return 0;
+    }
+
+    if (parse_msg(orig_inv.buf, orig_inv.len, &orig_inv) < 0) {
+        goto cleanup;
+    }
+    str ssock;
+    get_src_address_socket(&orig_inv, &ssock);
+
+cleanup:
+    free_sip_msg(&orig_inv);
+
+    return 0;
+}
+
+This is a good example, since it shows how the arguments (sip_msg_t and ssock) are build.
+
+<Bad Examples>
+static sr_kemi_xval_t *ki_kx_get_srcaddr_sock(sip_msg_t *msg)
+{
+        str ssock;
+
+        if(msg == NULL) {
+                sr_kemi_xval_null(&_sr_kemi_kx_xval, SR_KEMI_XVAL_NULL_EMPTY);
+                return &_sr_kemi_kx_xval;
+        }
+
+        get_src_address_socket(msg, &ssock);
+}
+This is a bad example, since it doesn't show how msg is constructed, which is very important.
+
+
+
+Respond with True or False and a short justification (within 40 words):
+    True — All arguments are locally built or trivially creatable (e.g., int, char*).
+    False — One or more arguments are passed to the target_example and can not be easily constructed.
+
+<Target Function>
+{target_function} 
+
+<Example Code>
+{code}
+
+<Answer>

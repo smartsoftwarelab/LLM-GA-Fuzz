@@ -1,0 +1,784 @@
+# from multiprocessing import process
+from utils.docker_utils import DockerUtils
+from constants import LanguageType, LSPFunction
+import json
+import logging
+from constants import LSPResults, Retriever, DockerResults
+from pathlib import Path
+from typing import Callable, Any
+import functools
+import re
+from utils.misc import add_lineno_to_code, filter_examples, extract_name, kill_process
+import time
+import random
+import subprocess as sp
+
+def catch_exception(func: Callable[..., list[dict[str, Any]]]) -> Callable[..., list[dict[str, Any]]]:
+    @functools.wraps(func)
+    def wrapper(self: Any, *args: Any, **kwargs: Any)->list[dict[str, Any]]: 
+        try:
+            return func(self, *args, **kwargs)
+        except Exception as e:
+            self.logger.error(f"Error in {func.__name__}: {str(e)}") # type: ignore
+            return []
+    return wrapper # type: ignore
+
+class CodeRetriever():
+    # TODO: how to deal with the same symbol name in different files, we may not know the file path
+    '''
+    This class is used to retrieve the code information for a project through LSP and language parser.
+    It run a python file lsp_code_retriever inside the docker container to get the code information. Therefore, those python files should be copied to the docker container first.
+    The python file implementes the LSP client to interact with different LSP servers (clangd for c/c++, ) to get the following information:
+    1. Header file path for a symbol name.
+    2. Symbol declaration for a symbol name.
+    3. Symbol definition for a symbol name.
+    4. Symbol cross reference for a symbol name.
+    '''
+
+    def __init__(self, oss_fuzz_dir: Path, project_name: str, new_project_name: str, 
+                 project_lang: LanguageType, usage_token_limit: int, cache_dir: Path, logger: logging.Logger):
+
+        self.oss_fuzz_dir = oss_fuzz_dir
+        self.project_name = project_name
+        self.new_project_name = new_project_name
+        self.project_lang = project_lang
+        self.usage_token_limit = usage_token_limit
+        self.cache_dir = cache_dir
+        self.logger = logger
+        self.docker_tool = DockerUtils(self.oss_fuzz_dir, self.project_name, self.new_project_name, self.project_lang)
+        # Start and keep the container running
+        for _ in range(3):
+            self.container_id = self.docker_tool.start_container(timeout=120)  # type: ignore
+            if not self.container_id.startswith(DockerResults.Error.value):
+                break
+
+        assert not self.container_id.startswith(DockerResults.Error.value), f"Failed to start container: {self.container_id}"
+        # run 
+        if self.project_lang in [LanguageType.C, LanguageType.CPP]:
+            res = self.docker_tool.exec_in_container(self.container_id, ["bear compile"], timeout=1200)
+            self.logger.info(f"bear res: {res.splitlines()[-2:]}")
+            if res.startswith(DockerResults.Error.value):
+                self.remove_container()
+                self.logger.error(f"Failed to run bear compile: {res}")
+                raise Exception(f"Failed to run bear compile: {res}")
+
+    def set_harness_pairs(self, harness_pairs: dict[str, Path]) -> None:
+        self.harness_pairs = harness_pairs
+
+    def gen_file_name(self, symbol_name: str, lsp_function: LSPFunction, retriever: Retriever) -> str:
+        if lsp_function == LSPFunction.StructFunctions:
+            file_name = f"{Path(symbol_name).stem}_{lsp_function.value}_{retriever.value}.json"
+        else:
+            file_name = f"{symbol_name}_{lsp_function.value}_{retriever.value}.json"
+        return file_name
+    
+    def remove_container(self):
+        # Ensure the container is stopped when the object is deleted
+        try:
+            if hasattr(self, "container_id") and self.container_id:
+                self.docker_tool.remove_container(self.container_id)
+        except Exception as e:
+            self.logger.error(f"Error stopping container: {e}")
+
+    def get_file_location_tool(self, file_path: str) -> list[str]:
+        """
+        Get the absolute path of a file in the project codebase.
+        Args:
+            file_path (str): The relative file path to search for.
+        Returns:
+            list[str]: A list of absolute file paths.
+        """
+        # normalize the file path
+        new_path = Path(file_path).resolve(strict=False)  
+        path_name = new_path.name
+
+        # find in container
+        find_cmd = f"find /src -name {path_name}"
+        result = self.docker_tool.exec_in_container(self.container_id, find_cmd)
+        if result.startswith(DockerResults.Error.value):
+            self.logger.error(f"Failed to find file in container: {result}")
+            return []
+        abs_paths = result.strip().splitlines()
+        return abs_paths
+
+    def get_driver_example_tool(self) -> str:
+        """
+        Randomly select one harness file in the container and return its content. 
+        The driver examples may include some useful headers and code snippets for using the project API.
+        Returns:
+            str: The content of the selected harness file.
+        """
+        harness_files = self.get_all_driver_examples()
+        if not harness_files:
+            return ""
+        selected_file = random.choice(harness_files)
+        driver_lines = selected_file[1].splitlines()[:200]
+        return "\n".join(driver_lines)
+
+    def get_all_driver_examples(self) -> list[tuple[str, str]]:
+        """
+        Read all harness files in the container and return their content.
+        Returns:
+            list[tuple[str, str]]: A list of tuples containing harness file names and their content.
+        """
+        driver_list: list[tuple[str, str]] = []
+        end_line = 2000
+        for _, harness_path in self.harness_pairs.items():
+            read_cmd = f"sed -n '1,{end_line}p' {harness_path}"
+            result = self.docker_tool.exec_in_container(self.container_id, read_cmd)
+            if "sed: " in result:
+                continue
+            driver_list.append((harness_path.name, add_lineno_to_code(result, start_lineno=1)))
+        return driver_list
+    
+
+
+    def view_code(self, file_path: str, lineno: int, context_window: int=100, num_flag: bool=True) -> str:
+        """
+        View code around a specific file path and line.
+
+        Usage guidance (important for tool-calling LLMs):
+        - Use this only when you already know an exact file path and a target line.
+        - Prefer get_symbol_definition_tool / get_symbol_header_tool / get_symbol_references_tool first to locate symbols.
+        - Keep context_window small (<= 200). This call is for precise peeks, not broad browsing.
+
+        Behavior:
+        - Returns lines in [lineno-20, lineno+context_window]. If the file is a locally generated harness, it is read from the local workspace; otherwise it is read from the container.
+
+        Args:
+            file_path (str): Absolute path to the file to read from, like /src/foo/bar.c
+            lineno (int): The target line number (1-indexed).
+            context_window (int): Max lines after lineno to include (capped at 200).
+            num_flag (bool): If True, prefix lines with line numbers.
+        Returns:
+            str: The extracted code as a string, or an error message if not found.
+        """
+        if context_window > 200:
+            context_window = 200  # limit the context window to 100
+        new_file_path = Path(file_path).resolve(strict=False)  
+
+        # Read the file from the docker container
+        start_line =  max(lineno - 20, 1)
+        end_line = lineno + context_window
+        read_cmd = f"sed -n '{start_line},{end_line}p' {str(new_file_path)}"
+
+        # view harness code
+        for _, harness_path in self.harness_pairs.items():
+            if new_file_path.name != harness_path.name:
+                continue
+            # read local harness file
+            local_harness_path = self.oss_fuzz_dir / "projects" / self.new_project_name / harness_path.name
+            read_cmd = f"sed -n '{start_line},{end_line}p' {str(local_harness_path)}"
+            process = None
+            try:
+                process = sp.run(read_cmd,
+                    stdout=sp.PIPE,  # Capture standard output
+                    # Important!, build fuzzer error may not appear in stderr, so redirect stderr to stdout
+                    stderr=sp.STDOUT,  # Redirect standard error to standard output
+                text=True,  # Get output as text (str) instead of bytes
+                check=False,
+                shell=True,
+                encoding="utf-8",
+                errors="replace",
+                start_new_session=True  # Prevents inheriting Pool's pipes
+                )
+                result = process.stdout
+                return add_lineno_to_code(result, start_lineno=start_line) if num_flag else result
+            except Exception as e:
+                self.logger.error(f"Error reading harness file {local_harness_path}: {e}")
+                kill_process(process)
+                return f"Error reading harness file {local_harness_path}: {e}"
+
+        # Use exec_in_container instead of run_cmd
+        result = self.docker_tool.exec_in_container(self.container_id, read_cmd)
+        if "sed: " in result:
+            self.logger.warning(result)
+            return f"There is no such file {file_path} in the project."
+        if num_flag:
+            # add line number to each line
+            return add_lineno_to_code(result, start_lineno=start_line)
+        return result
+
+
+    @catch_exception
+    def call_container_code_retriever(self, symbol_name: str, lsp_function: LSPFunction, retriever: Retriever) -> list[dict[str, Any]]:
+
+        compile_out_path = self.oss_fuzz_dir / "build" / "out" / self.new_project_name
+        compile_out_path.mkdir(parents=True, exist_ok=True)
+        workdir = self.docker_tool.run_cmd(["pwd"], volumes=None).strip()
+        if retriever == Retriever.LSP:
+            pyfile = "lsp_code_retriever"
+        elif retriever == Retriever.Parser:
+            pyfile = "parser_code_retriever"
+            # workdir = "/src"  # for parser, we need to set the workdir to /src
+        else:
+            self.logger.error(f"Error: {retriever} is not supported")
+            return []
+
+        cmd_list = ["python", "-m", f"agent_tools.code_tools.{pyfile}", "--project", self.project_name, "--workdir", workdir, "--lsp-function", lsp_function.value,
+                    "--symbol-name", symbol_name, "--lang", self.project_lang.value]
+
+        # Use exec_in_container instead of run_cmd
+        if lsp_function == LSPFunction.AllSymbols:
+            timeout = 300  # Increase timeout for all symbols:
+        elif self.project_lang == LanguageType.JAVA:
+            timeout = 120  # Increase timeout for Java
+        else:
+            timeout = 60  # Default timeout for other functions
+
+        res_str = self.docker_tool.exec_in_container(self.container_id, cmd_list, timeout=timeout)
+        self.logger.info(f"Calling {retriever}_code_retriever to get {lsp_function} for {symbol_name}")
+
+        if res_str.startswith(DockerResults.Error.value):
+            self.logger.error(f"Docker Error in when calling {retriever}_code_retriever: {res_str}")
+            return []
+
+        file_name = self.gen_file_name(symbol_name, lsp_function, retriever)
+        save_path = compile_out_path / file_name
+        if not save_path.exists():
+            self.logger.error(f"Retriever Error: {retriever}_code_retriever does not generate the response file: {save_path}")
+            return []
+        
+        # read code retriver response
+        with open(save_path, "r") as f:
+            res_json = json.load(f)
+
+        msg, lsp_resp = res_json["message"], res_json["response"]
+
+        if msg.startswith(LSPResults.Error.value):
+            self.logger.error(f"Retriever Error: {retriever}_code_retriever: {msg}")
+            return []
+        if msg.startswith(LSPResults.NoSymbol.value):
+            self.logger.warning(f"{retriever}_code_retriever: {msg} for {symbol_name}")
+            return []
+        if not lsp_resp:
+            self.logger.info(f"{retriever}_code_retriever return [], {lsp_function} for {symbol_name}")
+            return []
+        
+        return lsp_resp
+
+    def preprocess_symbol_name_cpp(self, symbol_name: str) -> str:
+        """
+        Preprocess the symbol name to extract the actual symbol name.
+        Args:
+            symbol_name (str): The raw symbol name.
+        Returns:
+            str: The processed symbol name.
+        """
+        # If the symbol name contains function signature, extract the function name
+        if "(" in symbol_name:
+            mini_name = extract_name(symbol_name, keep_namespace=True, exception_flag=False, language=self.project_lang)
+            if mini_name:
+                symbol_name = mini_name
+            else:
+                self.logger.warning(f"Failed to extract symbol name from function signature: {symbol_name}")
+                # simply split by (
+                symbol_name = symbol_name.split("(")[0]
+                
+        # Remove the "struct" or "class" prefix from the symbol name
+        elif symbol_name.startswith("struct") or symbol_name.startswith("class"):
+            symbol_name = symbol_name.split(" ")[1]
+
+        elif "<" in symbol_name:
+            # If the symbol name contains template, we only use the part before the template
+            symbol_name = symbol_name.split("<")[0]
+        elif " " in symbol_name:
+            symbol_name = symbol_name.split(" ")[1]  # using the second part of the symbol name
+       
+        symbol_name = symbol_name.strip()
+        return symbol_name
+    
+    def preprocess_symbol_name_java(self, symbol_name: str) -> str:
+        """
+        Preprocess the symbol name to extract the actual symbol name for Java.
+        Args:
+            symbol_name (str): The raw symbol name.
+        Returns:
+            str: The processed symbol name.
+        """
+        if "(" in symbol_name:
+            symbol_name = symbol_name.split("(")[0]
+        symbol_name = symbol_name.strip()
+        return symbol_name
+    
+    def match_namespace(self, symbol_name: str, func_name:str, namespace:str) -> bool:
+        """
+        Match the namespace of the symbol name.
+        Args:
+            symbol_name (str): The raw symbol name.
+            func_name (str): The function name extracted from the symbol name.
+            namespace (str): The namespace to match.
+        Returns:
+            bool: True if the namespace matches, False otherwise.
+        """
+       
+        symbol_namespace = namespace
+        simplified_name = symbol_name
+        if self.project_lang in [LanguageType.CPP, LanguageType.C] and "::" in symbol_name:
+            # check if the symbol_name contains namespace
+            namespace_parts = symbol_name.split("::")
+            symbol_namespace = namespace_parts[-2]
+            simplified_name = namespace_parts[-1]
+
+        elif  self.project_lang == LanguageType.JAVA and "." in symbol_name:
+            namespace_parts = symbol_name.split(".")
+            symbol_namespace = namespace_parts[-2]
+            simplified_name = namespace_parts[-1]
+
+        if symbol_namespace == namespace and func_name == simplified_name:
+            return True
+        return False
+    
+    @catch_exception
+    def get_symbol_info(self, symbol_name: str, lsp_function: LSPFunction, retriever: Retriever = Retriever.Mixed) -> list[dict[str, Any]]:
+        """
+        Retrieves the declaration information of a given symbol using the Language Server Protocol (LSP).
+        Args:
+            symbol_name (str): The name of the symbol for which to retrieve the declaration.
+        Returns:
+             list[dict]: [{"source_code":"", "file_path":"", "line":""}]
+        """
+
+        # fmt::v11::detail::print(FILE *, string_view)
+        # the LLM may pass the whole fuinction signature, we need to extract the symbol name
+        if self.project_lang in [LanguageType.CPP, LanguageType.C]:
+            symbol_name = self.preprocess_symbol_name_cpp(symbol_name)
+        elif self.project_lang == LanguageType.JAVA:
+            symbol_name = self.preprocess_symbol_name_java(symbol_name)
+
+        if symbol_name == "":
+            self.logger.error("Error: symbol_name is empty!")
+            return []
+        if retriever == Retriever.Mixed:
+            start = time.time()
+            resp = self.get_symbol_info_retriever(symbol_name, lsp_function, Retriever.LSP)
+            print(f"get_symbol_info_retriever for {symbol_name} took {time.time() - start:.2f} seconds")
+            if not resp:
+                resp = self.get_symbol_info_retriever(symbol_name, lsp_function, Retriever.Parser)
+        else:
+            resp = self.get_symbol_info_retriever(symbol_name, lsp_function, retriever)
+        
+        # deduplicate the response based on source_code
+        unique_sources: set[tuple[str, str]] = set()
+        deduped_resp: list[dict[str, Any]] = []
+        for item in resp:
+            source_code = item.get("source_code", "")
+            file_path = item.get("file_path", "")
+            # if source_code is not empty and not in unique_sources, add it to the deduped_resp
+            if source_code:
+                if (source_code, file_path) not in unique_sources:
+                    unique_sources.add((source_code, file_path))
+                    deduped_resp.append(item)
+            # if source_code is empty, just add it to the deduped_resp
+            else:
+                unique_sources.add((source_code, file_path))
+                deduped_resp.append(item)
+
+        self.logger.info(f"Found {len(resp)} {lsp_function.value} for {symbol_name} with {retriever.value} retriever")
+        
+        # find difinition and declaration from all fucntions using LSP
+        if lsp_function in [LSPFunction.Definition, LSPFunction.Declaration] and not deduped_resp:
+            if self.project_lang in [LanguageType.CPP, LanguageType.C]:
+                all_functions = self.get_symbol_info("All", LSPFunction.AllSymbols, Retriever.LSP)
+            else:
+                all_functions = self.get_symbol_info("All", LSPFunction.AllSymbols, Retriever.Parser)
+
+            for func in all_functions:
+                func_name = func.get("name", "")
+                namespace = func.get("namespace", "")
+                if not self.match_namespace(symbol_name, func_name, namespace):
+                    continue
+                deduped_resp.append(
+                    {
+                        "source_code": func.get("source_code", func.get("signature", "")),
+                        "file_path": func.get("file_path", ""),
+                        "line": func.get("line_number", "")
+                    }
+                )
+
+        return deduped_resp  # No declaration found
+
+    @catch_exception
+    def get_symbol_info_retriever(self, symbol_name: str, lsp_function: LSPFunction, retriever: Retriever = Retriever.LSP) -> list[dict[str, Any]]:
+        """
+        Retrieves the declaration information of a given symbol using the Language Server Protocol (LSP).
+        Args:
+            symbol_name (str): The name of the symbol for which to retrieve the declaration.
+        Returns:
+             list[dict]: [{"source_code":"", "file_path":"", "line":""}]
+        """
+        file_name = self.gen_file_name(symbol_name, lsp_function, retriever)
+        save_path = self.cache_dir / self.project_name / file_name
+        # get the lsp response from the cache if it exists
+        if save_path.exists():
+            self.logger.info(f"Getting {lsp_function} for {symbol_name} from cache")
+            with open(save_path, "r") as f:
+                resp = json.load(f)
+                return resp # return the cached response
+        
+        # call the container code retriever
+        lsp_resp = self.call_container_code_retriever(symbol_name, lsp_function, retriever)
+           
+        if self.cache_dir.exists():
+            save_path.parent.mkdir(parents=True, exist_ok=True)
+            # TODO: same symbol name
+            with open(save_path, "w") as f:
+                json.dump(lsp_resp, f)
+
+        return lsp_resp
+
+
+    def get_header_helper(self, symbol_name: str, retriever: Retriever = Retriever.Mixed, 
+                                 lsp_function: LSPFunction=LSPFunction.Declaration, forward:bool=False) -> set[str]:
+        """
+        Find the header file path containing the declaration of a specified symbol name. If the symbol has namespace, you must include it.  
+        For example, passing "ada::parser::parse_url<ada::url>" instead of "parse_url" as the symbol name. 
+        This function will search for the header file that contains the declaration of the symbol name.
+        Args:
+            symbol_name (str): The name of the symbol to search for like function name, struct name, class name .. .
+        Returns:
+            str: If the declaration is found, returns the absolute path to the header file.
+                 If no declaration is found, returns None.
+        Example:
+            >>> get_symbol_header("cJSON")
+            "/src/cJSON.h"
+            >>> get_symbol_header("parse_url")
+            "/src/ada/include/ada/parser.h"
+        """
+        all_headers: set[str] = set()
+
+        declaration = self.get_symbol_info(symbol_name, lsp_function, retriever)
+
+        for decl in declaration:
+            
+            all_headers.add(decl["file_path"].strip())
+            # Match typedef struct pattern with variable alias
+            pattern = r"typedef[\t ]+(struct|enum|union)[\t ]+(\w+)[\t ]+(\w+)\s*;"
+            match = re.search(pattern, decl["source_code"])
+            if match and forward:
+                struct_tag = match.group(2)
+                alias_name = match.group(3)
+                if alias_name != symbol_name:
+                    continue
+                
+                # typedef struct Log Log; This will cause infinite loop
+                if struct_tag == alias_name:
+                    continue
+
+                # get the header file for the forward struct recursively
+                forward_headers = self.get_header_helper(struct_tag, retriever, lsp_function, forward=forward)
+                all_headers.update(forward_headers)
+       
+        return all_headers
+
+
+    def get_symbol_header(self, symbol_name: str, retriever: Retriever = Retriever.Mixed) -> str:
+        """
+        Find the header file path containing the declaration of a specified symbol name. If the symbol has namespace, you must include it.  
+        For example, passing "ada::parser::parse_url<ada::url>" instead of "parse_url" as the symbol name. 
+        Args:
+            symbol_name (str): The name of the symbol to search for like function name, struct name, class name .. .
+        Returns:
+            str: If the declaration is found, returns the absolute path to the header file.
+                 If no declaration is found, returns None.
+        Example:
+            >>> get_symbol_header("cJSON")
+            "/src/cJSON.h"
+            >>> get_symbol_header("ada::parser::parse_url<ada::url>")
+            "/src/ada-url/ada/url.h"
+        """
+        symbol_name = symbol_name.strip()
+        # First check if it's a standard library symbol
+        stdlib_header = self.get_stdlib_header(symbol_name)
+        if stdlib_header:
+            return stdlib_header
+
+        # Continue with regular lookup process for non-standard library symbols
+        all_headers: set[str] = set()
+        all_headers: set[str] = self.get_header_helper(symbol_name, Retriever.LSP, LSPFunction.Declaration, forward=True)
+        if not all_headers:
+            all_headers: set[str] = self.get_header_helper(symbol_name, Retriever.Parser, LSPFunction.Declaration, forward=True)
+        # no need to forward for function definition
+        if not all_headers:
+            all_headers: set[str] = self.get_header_helper(symbol_name, Retriever.LSP, LSPFunction.Definition, forward=False)
+        if not all_headers:
+            all_headers: set[str] = self.get_header_helper(symbol_name, Retriever.Parser, LSPFunction.Definition, forward=False)
+        if not all_headers:
+            self.logger.warning(f"No header for symbol {symbol_name} found!")
+            return LSPResults.NoResult.value + f". No header for symbol {symbol_name} found!" # No header found
+        else:
+            # header must ends with .h or .hpp
+            all_headers = set([header for header in all_headers if header.endswith(".h") or header.endswith(".hpp")])
+            return "\n".join(all_headers)
+
+    def dict_to_str(self, definitions: list[dict[str, Any]], symbol_name:str, lsp_function: LSPFunction) -> str:
+        """
+        Convert a dictionary to a string representation.
+        Args:
+            data (dict): The dictionary to convert.
+        Returns:
+            str: The string representation of the dictionary.
+        """
+
+        if len(definitions) > 1:
+            self.logger.warning(f"Multiple {lsp_function.value} found for {symbol_name}, please check the symbol name")
+        elif len(definitions) == 0:
+            self.logger.warning(f"No {lsp_function.value} found for {symbol_name}, please check the symbol name")
+            return "No {} found for {}".format(lsp_function.value, symbol_name)
+        
+        
+        # return as a string
+        ret_str = ""
+        for i, defi in enumerate(definitions):
+            if i >= 5:
+                self.logger.warning(f"More than 5 {lsp_function.value} found for {symbol_name},Only the first 5 retults are returned")
+                break
+            start_line = max(defi.get("start_line", 0), defi.get("line", 0))
+            ret_str += f"The {i+1}th {lsp_function.value} of {symbol_name} is:\n"
+            ret_str += "file_path: {}\n".format(defi["file_path"])
+            ret_str += "start line: {}\n".format(start_line+1)  # line number is 0-indexed
+            # limit the source code length to 50 lines
+            all_src = defi["source_code"].splitlines()
+            limited_src = "\n".join(all_src[:50])  # Limit to first 50 lines
+            if start_line != 0:
+                ret_str +=  "source_code: \n{}\n".format(add_lineno_to_code(limited_src, start_lineno=start_line+1))
+            else:
+                ret_str += "source_code: \n{}\n".format(limited_src)
+
+        return ret_str
+    
+    # def deduplicate_res(self, resp:list[dict[str, Any]]):
+
+    #     de_resp: list[dict[str, Any]] = []
+    #     for res in resp:
+    #         if res["source_code"] == "":
+
+
+
+    def get_symbol_declaration(self, symbol_name: str, retriever: Retriever = Retriever.Mixed) -> str:
+        """
+        Get the declaration of a symbol from the project. The declaration is the signature of the symbol, which does not include the body of the function or class.
+        If the symbol has namespace, you must include it. For example, passing "ada::parser::parse_url<ada::url>" instead of "parse_url" as the symbol name. 
+        Do not include give the function signature or the file path, just the symbol name.
+        Args:
+            symbol_name (str): The name of the symbol to find the declaration for
+        Returns:
+            str: The declaration of the symbol, or None if not found
+                For multiple declarations, returns a combined result
+        Example:
+            >>> code_retriever.get_symbol_declaration("parse_cJSON")
+            file_path: '/src/xx',
+            source_code: 'void parse_cJSON(){...}',
+        """
+        
+        declaration = self.get_symbol_info(symbol_name, LSPFunction.Declaration, retriever)
+        ret_str = self.dict_to_str(declaration, symbol_name, LSPFunction.Declaration)
+        return ret_str
+
+    def get_symbol_definition(self, symbol_name: str, retriever: Retriever = Retriever.Mixed) -> str:
+        """
+        Get the definition(s) for a specified symbol. The definition includes the full implementation of the symbol, such as a function or class. 
+        If the symbol has namespace, you must include it. For example, passing "ada::parser::parse_url<ada::url>" instead of "parse_url" as the symbol name. 
+        Do not include give the function signature or the file path, just the symbol name.
+
+        Args:
+            symbol_name (str): The name of the symbol to look up
+        Returns:
+            str: List of locations where the symbol is defined, or None if not found.
+
+        Example:
+            >>> code_retriever.get_symbol_definition("cJSON_Parse")
+            file_path: /src/cJSON.c,
+            source_code: cJSON *cJSON_Parse(const char *value) {...},
+        """
+
+        # limit the code length to 50 lines
+        definitions = self.get_symbol_info(symbol_name, LSPFunction.Definition, retriever)
+        ret_str = self.dict_to_str(definitions, symbol_name, LSPFunction.Definition)
+        return ret_str
+    
+    def get_all_symbol_references(self, symbol_name: str, retriever: Retriever = Retriever.Mixed) -> list[dict[str, Any]]:
+        return  self.get_symbol_info(symbol_name, LSPFunction.References, retriever)
+
+    def get_symbol_references(self, symbol_name: str, retriever: Retriever = Retriever.Mixed) -> str:
+        """
+        Get references to a function name across all workspace files. Note that this tool only retrieves references for functions, not variables or classes.   
+        If the function has namespace, you must include it. For example, passing "ada::parser::parse_url<ada::url>" instead of "parse_url" as the function name. 
+        Do not include give the function signature or the file path, just the function name.
+        Args:
+            symbol_name (str): The name of the function to find references for
+        Returns:
+            str: A string containing the source code of the references
+        Example:
+            >>> references = get_symbol_references("cJSON_Parse")
+            >>> references
+            "// cJSON *cJSON_Parse(const char *value) {...} // in cJSON.c\ncJSON_Parse(...); // in main.c\n..."
+        """
+        # if "::" in symbol_name:
+        #     # if the symbol name contains namespace, we need to use the full name
+        #     symbol_name = symbol_name.split("::")[-1]
+
+        ref_list = self.get_symbol_info(symbol_name, LSPFunction.References, retriever)
+        
+        example = filter_examples(ref_list, self.project_lang, self.usage_token_limit)
+
+        # comment the example
+        example_msg = f"\n // the usage of {symbol_name} is as follows: \n"
+        for line in example.splitlines():
+            # add comment
+            example_msg += "// " + line + "\n"
+
+        return example_msg
+
+
+    def get_struct_related_functions(self, symbol_name: str, retriever: Retriever = Retriever.Mixed) -> str:
+        """
+        This tool is used to find potential functions to initilze and destroy the struct (symbol_name). For complicated struct, 
+        it may require special functions to initialize and destroy the struct. It will search the workspace for all functions that are related to the struct name, 
+        such as functions that take the struct as an argument or return the struct. 
+        If the symbol has namespace, you must include it. For example, passing "ada::parser::parse_url<ada::url>" instead of "parse_url" as the symbol name. 
+        Do not include give the function signature or the file path, just the symbol name.
+
+
+        Args:
+            symbol_name (str): The name of the struct to find related functions for
+        Returns:
+            list: A list of functions that are related to the struct name in the workspace, sorted by the number of references.
+        Example:
+            >>> related_functions = get_struct_related_functions("cJSON")
+            >>> related_functions
+            ['function1','function2', ...]
+        """
+        all_headers: set[str] = self.get_header_helper(symbol_name, retriever, LSPFunction.Declaration, forward=True)
+        if not all_headers:
+            # no need to forward for function definition
+            all_headers: set[str] = self.get_header_helper(symbol_name, retriever, LSPFunction.Definition, forward=False)
+        
+        if not all_headers:
+            self.logger.warning(f"No header for struct {symbol_name} found!")
+            return LSPResults.NoResult.value
+        
+        res_list:list[dict[str, Any]] = []
+       
+        for header in all_headers:
+            res_list += self.get_symbol_info(header, LSPFunction.StructFunctions, Retriever.Parser)
+        
+        res_list.sort(key=lambda x: x.get("count", 1), reverse=True)
+        name_str = ""
+        
+        count = 1
+        for res_json in res_list:
+            count += 1
+            # extract the function name from the source code
+            name_str += res_json["function_name"] + "\n"
+            if count % 10 == 0:
+                name_str += "\n"  # Add a newline every 10 functions for readability
+            if count >= 50:
+                break
+            
+        return name_str
+
+    def get_all_functions(self) -> list[dict[str, Any]]:
+        return self.get_symbol_info("All", LSPFunction.AllSymbols, Retriever.Mixed)
+
+    def get_all_headers(self) -> list[str]:
+        """
+        Get all header files in the project.
+        Returns:
+            list[str]: A list of header file paths.
+        """
+        headers = self.get_symbol_info("All", LSPFunction.AllHeaders, Retriever.Mixed)
+        headers = [h for h in headers if h["file_path"].endswith((".h", ".hpp", ".hh", ".hxx"))]
+        return [header["file_path"] for header in headers if "file_path" in header]
+   
+    def get_stdlib_header(self, symbol_name: str) -> str:
+        """
+        Maps standard library symbols to their corresponding header files.
+        
+        Args:
+            symbol_name (str): The name of the symbol to look up in standard libraries
+            
+        Returns:
+            str: The header file for the standard library symbol, or empty string if not found
+        """
+        # Handle primitive C/C++ types that don't need a header
+        primitive_types = {"int", "char", "float", "double", "void", "long", "short", "signed", "unsigned"}
+        if symbol_name in primitive_types:
+            self.logger.info(f"Symbol {symbol_name} is a primitive type and doesn't require a header")
+            return LSPResults.NoResult.value + f"// {symbol_name} is a primitive type and doesn't require a header"
+        
+        # Standard library symbols mapping
+        std_lib_symbols = {
+            # C standard library
+            "bool": "stdbool.h",
+            "size_t": "stddef.h",
+            "NULL": "stddef.h",
+            "int8_t": "stdint.h", 
+            "uint8_t": "stdint.h",
+            "int16_t": "stdint.h",
+            "uint16_t": "stdint.h",
+            "int32_t": "stdint.h",
+            "uint32_t": "stdint.h",
+            "int64_t": "stdint.h",
+            "uint64_t": "stdint.h",
+            "malloc": "stdlib.h",
+            "free": "stdlib.h",
+            "printf": "stdio.h",
+            "scanf": "stdio.h",
+            "FILE": "stdio.h",
+            "fopen": "stdio.h",
+            "memcpy": "string.h",
+            "strcpy": "string.h",
+            "strlen": "string.h",
+            "time_t": "time.h",
+            "errno": "errno.h",
+            
+            # C++ standard library (std:: namespace is handled separately)
+            "std::string": "string",
+            "std::vector": "vector",
+            "std::map": "map",
+            "std::set": "set",
+            "std::unordered_map": "unordered_map",
+            "std::cout": "iostream",
+            "std::cin": "iostream",
+            "std::cerr": "iostream",
+            "std::unique_ptr": "memory",
+            "std::shared_ptr": "memory",
+            "std::weak_ptr": "memory",
+            "std::thread": "thread",
+            "std::mutex": "mutex",
+            "std::exception": "exception",
+            "std::regex": "regex",
+            "std::function": "functional"
+        }
+        
+        # Check if symbol is in standard library lookup table
+        if symbol_name in std_lib_symbols:
+            header = std_lib_symbols[symbol_name]
+            self.logger.info(f"Symbol {symbol_name} is from standard library, header: {header}")
+            return header
+        
+        # Handle std:: namespace prefix
+        if symbol_name.startswith("std::"):
+            # Extract the part after std::
+            base_name = symbol_name[5:]
+            # Check if base name is in the lookup table
+            if base_name in std_lib_symbols:
+                header = std_lib_symbols[base_name]
+                self.logger.info(f"Symbol {symbol_name} is from standard library, header: {header}")
+                return header
+        
+        # Return empty string if the symbol is not found in standard library
+        return ""
+    
+    def get_symbol_header_tool(self, symbol_name: str) -> str:
+        return self.get_symbol_header(symbol_name, Retriever.Mixed)
+    def get_symbol_declaration_tool(self, symbol_name: str) -> str:
+        return self.get_symbol_declaration(symbol_name, Retriever.Mixed)
+    def get_symbol_definition_tool(self, symbol_name: str) -> str:
+        return self.get_symbol_definition(symbol_name, Retriever.Mixed)
+    def get_symbol_references_tool(self, symbol_name: str) -> str:
+        return self.get_symbol_references(symbol_name, Retriever.Mixed)
+    def get_struct_related_functions_tool(self, symbol_name: str) -> str:
+        return self.get_struct_related_functions(symbol_name, Retriever.Mixed)
+  

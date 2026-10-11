@@ -1,0 +1,2 @@
+You can call the following tool to get header information. Prefer absolute paths first; if that fails, try project-relative paths:
+- get_symbol_header_tool — Get the header file(s) of a symbol. Try #include "/path/to/header.h" first; if it fails with ".h file not found", try a relative include path.

@@ -1,0 +1,74 @@
+// Coverage wrapper fields and methods for Java fuzzing with Jazzer
+// These are inserted directly into the fuzzer class (no inner class)
+// Similar to the sancov approach used in C/C++
+
+// === Coverage Wrapper Static Fields ===
+private static final String COV_BITMAPS_DIR = "./bitmaps";
+private static Object covJacocoRuntime = null;
+private static java.lang.reflect.Method covGetExecutionDataMethod = null;
+private static java.lang.reflect.Method covResetMethod = null;
+private static boolean covInitialized = false;
+private static int[] covEdgeCounters = new int[65536];
+private static int covEdgeCount = 0;
+
+static {
+    initCoverageWrapper();
+}
+
+private static void initCoverageWrapper() {
+    if (covInitialized) return;
+    try {
+        Class<?> rtClass = Class.forName("org.jacoco.agent.rt.RT");
+        java.lang.reflect.Method getAgentMethod = rtClass.getMethod("getAgent");
+        covJacocoRuntime = getAgentMethod.invoke(null);
+        if (covJacocoRuntime != null) {
+            Class<?> agentClass = covJacocoRuntime.getClass();
+            covGetExecutionDataMethod = agentClass.getMethod("getExecutionData", boolean.class);
+            covResetMethod = agentClass.getMethod("reset");
+        }
+        covInitialized = true;
+    } catch (Exception e) {
+        covInitialized = true;
+    }
+}
+
+private static void resetSancovCounters() {
+    if (covJacocoRuntime != null && covResetMethod != null) {
+        try {
+            covResetMethod.invoke(covJacocoRuntime);
+        } catch (Exception e) { }
+    } else {
+        for (int i = 0; i < covEdgeCounters.length; i++) {
+            covEdgeCounters[i] = 0;
+        }
+        covEdgeCount = 0;
+    }
+}
+
+private static void saveSancovCounters() {
+    java.io.File bitmapsDir = new java.io.File(COV_BITMAPS_DIR);
+    if (!bitmapsDir.exists()) {
+        bitmapsDir.mkdirs();
+    }
+    int counter = 0;
+    java.io.File[] existingFiles = bitmapsDir.listFiles();
+    if (existingFiles != null) {
+        counter = existingFiles.length;
+    }
+    String filename = COV_BITMAPS_DIR + "/" + counter + ".bin";
+    try {
+        byte[] coverageData;
+        if (covJacocoRuntime != null && covGetExecutionDataMethod != null) {
+            coverageData = (byte[]) covGetExecutionDataMethod.invoke(covJacocoRuntime, false);
+        } else {
+            coverageData = new byte[covEdgeCounters.length];
+            for (int i = 0; i < covEdgeCounters.length; i++) {
+                coverageData[i] = (byte) Math.min(covEdgeCounters[i], 255);
+            }
+        }
+        try (java.io.FileOutputStream fos = new java.io.FileOutputStream(filename)) {
+            fos.write(coverageData);
+        }
+    } catch (Exception e) { }
+}
+// === End Coverage Wrapper ===

@@ -1,0 +1,28 @@
+# Configuration file for the NTU project
+oss_fuzz_dir: /home/ubuntu/fuzzing_workspace/oss-fuzz/
+save_root: outputs_ablation/c_study/gpt5-mini/header/
+cache_root: /home/ubuntu/fuzzing_workspace/LLM-reasoning-agents/cache/
+model_name: "gpt-5-mini"
+base_url: ""
+llm_api_key: "<REDACTED_OPENAI_KEY>"
+reasoning: false
+temperature: 1.0
+run_time: 1
+max_fix: 5
+max_tool_call: 100
+usage_token_limit: 1000
+model_token_limit: 8096
+n_examples: 0
+example_mode: random 
+example_source: project
+iterations: 3
+num_processes: 8 # Will be set to os.cpu_count()//2 at runtime
+bench_dir: benchmark-sets/ntu
+project_name: ""
+function_signatures: []
+funcs_per_project: 100
+fixing_mode: "raw"
+header_mode: "static"
+memory_flag: false
+clear_msg_flag: true
+definition_flag: true

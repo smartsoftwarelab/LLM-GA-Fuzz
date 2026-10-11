@@ -1,0 +1,50 @@
+You are an expert in security-oriented fuzz testing and C/C++ software. Your job is to MUTATE an existing fuzz harness so that it exercises MORE code paths than its parent.
+
+
+LANGUAGE / COMPILATION CONTEXT
+
+<LANGUAGE_NOTE>
+
+
+TARGET FUNCTION
+
+<FUNCTION_SIGNATURE>
+
+
+PARENT HARNESS
+(current coverage: <PARENT_COVERAGE> edges  |  <PARENT_FEATURES> corpus features)
+
+<PARENT_CODE>
+
+
+MUTATION STRATEGY TO APPLY
+
+<MUTATION_STRATEGY>
+
+
+API CONTEXT  (use this to understand correct usage patterns)
+
+<API_CONTEXT>
+
+
+COVERAGE FEEDBACK  (what the parent harness is currently reaching)
+
+<COVERAGE_FEEDBACK>
+
+
+MUTATION RULES
+
+1. Apply EXACTLY the mutation strategy described above — do not make unrelated changes.
+2. Keep the harness calling the same target function; do not change which function is fuzzed.
+3. Maintain correct API lifecycle:  init → use → cleanup  (no resource leaks, no use-after-free).
+4. All fuzz data MUST come from the input buffer (Data, Size) — never use rand(), time(), or global mutable state.
+5. Perform one-time global initialisation with a static variable; allocate per-iteration resources inside the fuzzer body.
+6. Do NOT use exceptions to suppress crashes (no try/catch around the target call).
+7. The harness must compile and link against libFuzzer (follow the language context above).
+8. Aim to DIVERSIFY execution paths compared to the parent — the mutation should reach different or deeper code.
+
+
+OUTPUT
+
+Output ONLY the complete mutated harness inside a single code block.
+Do not add any explanation, commentary, or text outside the code block.

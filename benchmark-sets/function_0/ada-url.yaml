@@ -1,0 +1,17 @@
+functions:
+- name: ada_parse_with_base
+  params:
+  - name: input
+    type: const char *
+  - name: input_length
+    type: size_t
+  - name: base
+    type: const char *
+  - name: base_length
+    type: size_t
+  return_type: ada_url
+  signature: ada_url ada_parse_with_base(const char *, size_t, const char *, size_t)
+language: c
+project: ada-url
+target_name: ada_c
+target_path: /src/ada-url/fuzz/ada_c.c

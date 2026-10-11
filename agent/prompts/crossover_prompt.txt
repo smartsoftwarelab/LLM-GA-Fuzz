@@ -1,0 +1,64 @@
+You are an expert in security-oriented fuzz testing and C/C++ software. Your job is to perform GENETIC CROSSOVER on two parent fuzz harnesses and produce an offspring that is STRONGER than either parent.
+
+
+LANGUAGE / COMPILATION CONTEXT
+
+<LANGUAGE_NOTE>
+
+
+TARGET FUNCTION
+
+<FUNCTION_SIGNATURE>
+
+
+PARENT 1
+(coverage: <PARENT1_COVERAGE> edges  |  <PARENT1_FEATURES> corpus features)
+
+<PARENT1_CODE>
+
+
+PARENT 2
+(coverage: <PARENT2_COVERAGE> edges  |  <PARENT2_FEATURES> corpus features)
+
+<PARENT2_CODE>
+
+
+API CONTEXT  (correct usage patterns for this library)
+
+<API_CONTEXT>
+
+
+CROSSOVER GOAL
+
+Produce an offspring that:
+
+1. INPUT PARSING  — adopt the input-parsing strategy from whichever parent handles
+   fuzz data more completely (e.g., size extraction, typed deserialization, multi-field splits).
+
+2. API CALL SEQUENCE  — adopt the call chain from whichever parent achieves deeper
+   coverage of the target library's internal state machine.
+
+3. COMBINE UNIQUE TRAITS  — if one parent adds NULL-pointer guards and the other
+   adds loop-based invocation, the offspring should include BOTH.
+
+4. EXPLORE NEW PATHS  — the offspring must not simply copy either parent verbatim.
+   Introduce at least one structural difference that could reach code paths missed
+   by both parents (e.g., a different cleanup order, an extra API call, a boundary
+   value test that neither parent exercises).
+
+
+CROSSOVER RULES
+
+1. The offspring MUST call the same target function as both parents.
+2. Maintain correct API lifecycle:  init → use → cleanup  (no leaks, no UAF).
+3. All fuzz data from input buffer (Data, Size) only — never rand(), time(), or globals.
+4. One-time global init with static variables; per-call state inside the function body.
+5. Do NOT use exceptions to hide crashes.
+6. The harness must compile and link against libFuzzer (follow the language context above).
+7. The offspring must be a genuine synthesis, not a trivial copy of either parent.
+
+
+OUTPUT
+
+Output ONLY the complete offspring harness inside a single code block.
+Do not add any explanation, commentary, or text outside the code block.

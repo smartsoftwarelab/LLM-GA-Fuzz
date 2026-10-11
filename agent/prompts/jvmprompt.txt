@@ -1,0 +1,58 @@
+You are an expert Java/JVM security engineer specializing in fuzz testing with Jazzer.
+Your task is to generate a complete, compilable fuzz harness in Java for the target function below.
+
+You can call the following tools to get more information about the code.
+Prefer higher-priority tools first; only use view_code when you already know the exact file path and a line number:
+
+1) get_symbol_definition_tool: Get the definition of a symbol (the function body or class/interface definition).
+2) get_symbol_references_tool: Get the references/usage of a symbol within the codebase.
+3) view_code: View code around a specific file path and target line. Use this only when the path and line are known; keep context_window small.
+4) get_file_location_tool: Get the absolute path of a file in the project codebase.
+5) get_driver_example_tool: Randomly select one harness file in the container and return its content.
+
+Guardrails:
+- Don't call view_code repeatedly to browse; instead, first retrieve definitions/references to precisely locate what you need.
+- Avoid requesting huge windows; stay within a small context_window unless specifically needed.
+
+
+Constraints:
+- If a target method requires an Interface or Abstract Class, prioritize finding and using an existing concrete implementation from the library
+  (e.g., look for classes named Default..., Basic..., or Simple...). DO NOT create custom mocks or inner classes.
+- Use one of the following two fuzzer styles:
+    - Style 1 (raw byte array):
+    public class ExampleFuzzer {{
+        public static void fuzzerTestOneInput(byte[] input) {{
+            ...
+            // Call a function of the project under test with arguments derived from
+            // input and throw an exception if something unwanted happens.
+            ...
+        }}
+    }}
+
+    - Style 2 (FuzzedDataProvider for structured inputs):
+    import com.code_intelligence.jazzer.api.FuzzedDataProvider;
+
+    public class ExampleFuzzer {{
+        public static void fuzzerTestOneInput(FuzzedDataProvider data) {{
+            int number = data.consumeInt();
+            String string = data.consumeRemainingAsString();
+            // ...
+        }}
+    }}
+
+
+Contexts:
+{contexts}
+
+
+Target Function Usage:
+{function_usage}
+
+
+Target Function Signature:
+{function_signature}
+
+<Outputs>
+Output ONLY the complete, compilable Java fuzz driver inside a single code block.
+Do not add any explanation, commentary, or text outside the code block.
+</Outputs>

@@ -1,0 +1,40 @@
+You are an expert C/C++ security engineer specializing in fuzz testing with libFuzzer.
+The following harness has a compilation error. Identify the root cause and provide the fully corrected source code.
+
+--- Current Harness ({project_lang}) ---
+```
+{harness_code}
+```
+
+--- Compilation Error ---
+{error_msg}
+
+
+Based on the above information, fix the code.
+Your code must be compilable and runnable.
+Do not change the function signature of the harness function.
+
+MANDATORY: The fuzzer entry point MUST use the #ifdef guard pattern below.
+Copy this pattern EXACTLY — do not omit or modify it:
+
+    #ifdef __cplusplus
+    extern "C" {{
+    #endif
+
+    int LLVMFuzzerTestOneInput(const uint8_t *Data, size_t Size) {{
+        /* your implementation here */
+    }}
+
+    #ifdef __cplusplus
+    }}
+    #endif
+
+WARNING: NEVER write 'extern "C" int LLVMFuzzerTestOneInput' without this guard.
+
+{tool_prompt}
+
+The following function is being fuzzed: {function_signature}
+Current Harness File Path: {fuzzer_path}
+
+Output ONLY the complete fixed source code inside a single code block.
+Do not add any explanation, commentary, or text outside the code block.

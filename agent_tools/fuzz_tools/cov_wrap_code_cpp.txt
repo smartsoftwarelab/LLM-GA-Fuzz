@@ -1,0 +1,79 @@
+#include <unistd.h>
+#include <stdint.h>
+#include <stddef.h>
+#include <stdlib.h>
+#include <stdio.h>
+#include <string.h>
+#include <sys/stat.h>
+#include <time.h>
+#include <dirent.h>
+
+// Explicitly declare time function for C++ compilation
+
+extern uint8_t __start___sancov_cntrs;
+extern uint8_t __stop___sancov_cntrs;
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+time_t time(time_t *tloc);
+void save_sancov_counters(void);
+void reset_sancov_counters(void);
+
+#ifdef __cplusplus
+}
+#endif
+
+void reset_sancov_counters(void) {
+    uint8_t *start = &__start___sancov_cntrs;
+    uint8_t *stop = &__stop___sancov_cntrs;
+    
+    // Calculate the size (in bytes) of the region
+    size_t size = stop - start;
+    
+    // Zero out the entire region
+    memset(start, 0, size);
+}
+
+
+void save_sancov_counters(void) {
+    // --- (1) Calculate size and print it ---
+    uint8_t *start = &__start___sancov_cntrs;
+    uint8_t *stop = &__stop___sancov_cntrs;
+    size_t size = stop - start;
+
+    // --- (2) Ensure /out/bitmaps/ directory exists ---
+    if (access("./bitmaps", F_OK) != 0) {  // Check if dir exists
+       // mkdir("/out", 0755);                  // Create /out (rwxr-xr-x)
+        mkdir("./bitmaps", 0755);          // Create /out/bitmaps
+    }
+
+    // --- (3) Count existing files in ./bitmaps to determine counter ---
+    unsigned int counter = 0;
+    DIR *dir = opendir("./bitmaps");
+    if (dir != NULL) {
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            // Skip "." and ".." entries
+            if (strcmp(entry->d_name, ".") != 0 && strcmp(entry->d_name, "..") != 0) {
+                counter++;
+            }
+        }
+        closedir(dir);
+    }
+    
+    // --- (4) Generate filename using counter ---
+    char filename[64];
+    snprintf(filename, sizeof(filename), "./bitmaps/%u.bin", counter);
+    
+    // --- (5) Write data to file ---
+    FILE *file = fopen(filename, "wb");
+    if (!file) {
+        perror("Failed to open file");
+        return;
+    }
+
+    fwrite(start, 1, size, file);
+    fclose(file);
+}

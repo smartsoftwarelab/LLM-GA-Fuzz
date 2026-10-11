@@ -1,0 +1,38 @@
+# Generic evaluation config — used by agent.eval to re-fuzz harnesses
+# and produce edge coverage percentages.
+#
+# save_root points to outputs/evo_eval_ready/ so that eval.py writes
+# cov.txt files there, and get_evaluation_results() can read them.
+
+oss_fuzz_dir:  /home/ubuntu/fuzzing_workspace/oss-fuzz/
+save_root:     outputs/evo_eval_ready/
+cache_root:    /home/ubuntu/fuzzing_workspace/evo_cache/
+bench_dir:     /home/ubuntu/fuzzing_workspace/LLM-reasoning-agents/benchmark-sets/function_0
+
+model_name:    "gpt-5-mini"
+base_url:      ""
+llm_api_key:   "<REDACTED_OPENAI_KEY>"
+temperature:   1
+reasoning:     false
+model_token_limit: 32000
+usage_token_limit: 1000
+
+run_time:       3       # minutes for the full coverage fuzz run
+max_fix:        0
+max_tool_call:  0
+fixing_mode:    "agent"
+header_mode:    "agent"
+semantic_mode:  "both"
+ignore_crashes: true
+no_log:         false
+compile_enhance: false
+memory_flag:    false
+use_cache_harness_pairs: false
+clear_msg_flag: true
+
+num_processes:  4
+
+project_name:        []
+function_signatures: []
+funcs_per_project:   10000
+language:            "CPP"
