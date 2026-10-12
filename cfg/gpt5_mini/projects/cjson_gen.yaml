@@ -4,7 +4,6 @@ save_root: outputs/projects/gpt5-mini/cjson/
 cache_root: /home/ubuntu/fuzzing_workspace/LLM-reasoning-agents/cache/aa_projects/
 model_name: "gpt-5-mini"
 base_url: ""
-llm_api_key: "<REDACTED_OPENAI_KEY>"
 reasoning: false
 temperature: 1
 run_time: 1
@@ -33,7 +32,6 @@ compile_enhance: true
 # cache_root: /home/ubuntu/fuzzing_workspace/LLM-reasoning-agents/cache/aa_projects/
 # model_name: "gpt-5-mini"
 # base_url: ""
-# llm_api_key: "<REDACTED_OPENAI_KEY>"
 # reasoning: false
 # temperature: 1
 # run_time: 1

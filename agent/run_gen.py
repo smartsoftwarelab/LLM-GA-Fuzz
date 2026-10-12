@@ -136,8 +136,7 @@ class Runner:
         if not os.path.exists(self.config.save_root):
             os.makedirs(self.config.save_root)
         config_file = os.path.join(self.config.save_root, "config.yaml")
-        with open(config_file, 'w') as f:
-            yaml.dump(self.config, f)
+        self.config.write_snapshot(config_file)
         function_dicts = get_benchmark_functions(self.config.benchmark_dir,
                                                  allowed_projects=self.config.project_name if self.config.project_name else [],
                                                  allowed_functions=self.config.function_signatures,

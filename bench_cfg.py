@@ -1,8 +1,44 @@
 from constants import PROJECT_PATH, LanguageType
+from enum import Enum
 from pathlib import Path
 from typing import Any
 import os
+import re
+import sys
 import yaml
+
+
+REDACTED = "<REDACTED>"
+# Secret field names (case-insensitive). "token" matches only as the trailing word
+# (github_token, access_token) so model_token_limit / usage_token_limit stay visible.
+_SECRET_KEY_RE = re.compile(r"api[_-]?key|secret|(?:^|_)token$", re.IGNORECASE)
+# Backstop for secrets stored under an unexpected field name.
+_SECRET_VALUE_RE = re.compile(r"sk-[A-Za-z0-9_-]{16,}")
+
+
+def redact_secrets(obj: Any) -> Any:
+    """Return a copy of obj with secret fields replaced by REDACTED, recursing into dicts and lists."""
+    if isinstance(obj, dict):
+        return {k: REDACTED if isinstance(k, str) and _SECRET_KEY_RE.search(k) else redact_secrets(v)
+                for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [redact_secrets(v) for v in obj]
+    if isinstance(obj, str):
+        return _SECRET_VALUE_RE.sub(REDACTED, obj)
+    return obj
+
+
+def _to_plain(obj: Any) -> Any:
+    """Convert Path/Enum members to YAML-safe builtins."""
+    if isinstance(obj, dict):
+        return {str(k): _to_plain(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_plain(v) for v in obj]
+    if isinstance(obj, Path):
+        return str(obj)
+    if isinstance(obj, Enum):
+        return obj.value
+    return obj
 
 
 class BenchConfig:
@@ -25,9 +61,14 @@ class BenchConfig:
 
         self.model_name = self.config.get('model_name', "gpt-5-mini")
         self.base_url = self.config.get('base_url', "")
-        self.llm_api_key = self.config.get('llm_api_key', os.getenv("CORESTABLE_API_KEY", "<REDACTED_OPENAI_KEY>"))
-        # langchain-openai requires OPENAI_API_KEY in env even when api_key is passed explicitly
-        os.environ.setdefault("OPENAI_API_KEY", self.llm_api_key)
+        # The API key is read only from the environment, never from config files or source.
+        if 'llm_api_key' in self.config:
+            sys.exit(f"ERROR: {config_path} contains 'llm_api_key'. API keys must not be stored in "
+                     "config files: delete that line and export OPENAI_API_KEY instead.")
+        self.llm_api_key = os.environ.get("OPENAI_API_KEY")
+        if not self.llm_api_key:
+            sys.exit("ERROR: environment variable OPENAI_API_KEY is not set (it is also the key used "
+                     "for base_url endpoints such as CoreStableLLM). Set it with: export OPENAI_API_KEY=<key>")
         self.reasoning = self.config.get('reasoning', False)
         self.temperature = self.config.get('temperature', 0.7)
         self.run_time = self.config.get('run_time', 1)
@@ -67,4 +108,13 @@ class BenchConfig:
         """Load configuration from a YAML file."""
         with open(config_path, 'r') as f:
             return yaml.safe_load(f)
+
+    def snapshot_dict(self) -> dict[str, Any]:
+        """Plain, secret-redacted view of the configuration, safe to write to disk."""
+        return redact_secrets(_to_plain(vars(self)))
+
+    def write_snapshot(self, path: str | os.PathLike) -> None:
+        """Write the redacted configuration snapshot as plain YAML."""
+        with open(path, 'w') as f:
+            yaml.safe_dump(self.snapshot_dict(), f, sort_keys=True)
     

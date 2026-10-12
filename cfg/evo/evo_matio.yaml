@@ -9,10 +9,8 @@ bench_dir:     /home/ubuntu/fuzzing_workspace/LLM-reasoning-agents/benchmark-set
 # Slightly higher temperature than the base agent to encourage diversity.
 # model_name:        "CoreStableLLM"
 # base_url:          "https://llm-test.ssl.qom.ac.ir/llm/v1/"
-# llm_api_key:       "<REDACTED>"
 model_name: "gpt-5-mini"
 base_url: ""
-llm_api_key: "<REDACTED_OPENAI_KEY>"
 temperature:       1
 reasoning:         false
 model_token_limit: 8096

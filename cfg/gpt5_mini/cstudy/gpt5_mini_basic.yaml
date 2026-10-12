@@ -4,7 +4,6 @@ save_root: outputs_ablation/c_study/gpt5-mini/basic/
 cache_root: /home/ubuntu/fuzzing_workspace/LLM-reasoning-agents/cache/
 model_name: "gpt-5-mini"
 base_url: ""
-llm_api_key: "<REDACTED_OPENAI_KEY>"
 reasoning: false
 temperature: 1.0
 run_time: 1
