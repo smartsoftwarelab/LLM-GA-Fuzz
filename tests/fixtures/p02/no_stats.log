@@ -1,0 +1,3 @@
+vm.mmap_rnd_bits = 28
+rm: cannot remove '/tmp/matio_fuzzer_corpus': Device or resource busy
+Using seed corpus: matio_fuzzer_seed_corpus.zip

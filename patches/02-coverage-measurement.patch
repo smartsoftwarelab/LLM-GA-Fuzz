@@ -1,0 +1,1540 @@
+diff --git a/agent/eval.py b/agent/eval.py
+index 1ed6972..081ed4b 100644
+--- a/agent/eval.py
++++ b/agent/eval.py
+@@ -8,7 +8,8 @@ from bench_cfg import BenchConfig
+ from pathlib import Path
+ from constants import CompileResults, ValResult, PROJECT_PATH
+ from utils.misc import extract_name
+-from agent_tools.fuzz_tools.cov_collecter import CovCollector
++from agent_tools.fuzz_tools.coverage_result import CoverageResult, CoverageStatus
++from agent_tools.fuzz_tools.llvm_cov import LlvmCovCollector
+ import multiprocessing
+ import psutil
+ import shutil
+@@ -20,10 +21,11 @@ class HarnessEval(FuzzENV):
+         super().__init__(benchcfg=benchcfg, function_signature=function_signature, project_name=project_name, n_run=n_run, eval_flag=True, force_init=True)
+         self.harness_code = local_harness.read_text()
+ 
+-    def eval_harness(self, fuzzer_name: str, harness_path: Path, include_path_set: set[str] = set()) -> tuple[int, int, int, bool]:
++    def eval_harness(self, fuzzer_name: str, harness_path: Path, include_path_set: set[str] = set()) -> tuple[CoverageResult, str]:
+         '''
+         :param fuzzer_name: the fuzzer name associated with the harness
+         :param harness_path: the path of the harness file inside the oss-fuzz project docker image
++        :return: (llvm-cov result on the final corpus, fuzzing outcome)
+         '''
+         compiler = Compiler(self.benchcfg.oss_fuzz_dir, self.benchcfg.benchmark_dir, self.project_name, self.new_project_name, include_path_set)
+ 
+@@ -33,7 +35,8 @@ class HarnessEval(FuzzENV):
+         compile_res, _ = compiler.compile_harness(harness_code=self.harness_code, harness_path=harness_path, fuzzer_name=fuzzer_name)
+         if compile_res != CompileResults.Success:
+             self.logger.error(f"Fuzzer compilation failed: {compile_res}") if self.logger else None
+-            return 0, 0, 0, False
++            return CoverageResult(CoverageStatus.BUILD_FAILED, self.benchcfg.coverage_metric,
++                                  error_message=f"fuzzing build failed: {compile_res.value}"), "NOT_RUN"
+ 
+         # Run the fuzzer
+         fuzz_res, _, _ = fuzzer.run_fuzzing(counter=0, fuzzer_name=fuzzer_name, 
+@@ -56,75 +59,75 @@ class HarnessEval(FuzzENV):
+             
+         self.logger.info(f"Collecting coverage for {fuzzer_name}") if self.logger else None
+         corpus_dir = Path(self.save_dir) / "corpora"
+-        function_name = extract_name(self.function_signature, keep_namespace=True, exception_flag=False, language=self.project_lang)
+-        # init the cov collector
+-        cov_collector = CovCollector(self.benchcfg.oss_fuzz_dir, self.benchcfg.benchmark_dir, self.project_name,
+-                                      self.new_project_name, self.project_lang, self.logger)
+-        # collect the coverage
+-        init_cov, final_cov, total_edges, changed = cov_collector.collect_coverage(self.harness_code, harness_path, fuzzer_name, function_name, corpus_dir)
++        cov_collector = LlvmCovCollector(self.benchcfg.oss_fuzz_dir, self.benchcfg.benchmark_dir, self.project_name,
++                                         self.new_project_name, self.project_lang, raw_dir=Path(self.save_dir) / "coverage_raw",
++                                         metric=self.benchcfg.coverage_metric,
++                                         input_timeout=self.benchcfg.coverage_input_timeout,
++                                         total_timeout=self.benchcfg.coverage_total_timeout,
++                                         include_path=include_path_set, logger=self.logger)
++        result = cov_collector.collect(self.harness_code, harness_path, fuzzer_name, corpus_dir)
++        return result, fuzz_res.name
+ 
+-        return init_cov, final_cov, total_edges, changed
+ 
+ 
++def process_single_result(args: tuple[str, str, Path, BenchConfig]) -> tuple[str, str, dict]: # type: ignore
++    """Process a single project/function/workdir combination.
+ 
+-def process_single_result(args: tuple[str, str, Path, BenchConfig]): # type: ignore
+-    """Process a single project/function/workdir combination"""
++    Always returns a record whose "coverage" entry is a CoverageResult dict; a failure
++    is recorded with its status and covered/total = null, never as 0.
++    """
+     project_name, function_signature, work_dir, benchcfg = args # type: ignore
+     local_harness_file = work_dir / "harness.txt"
+-    
+-    fuzzer_info_file = work_dir / "fuzzer_info.json"
+-    if not fuzzer_info_file.exists():
+-        # read the agent log
+-        agent_log_file = work_dir / "agent.log"
+-        log_lines = agent_log_file.read_text().splitlines()
+-        # read the fuzzer name and harness path
+-        fuzzer_name, remote_harness_path = extract_fuzzer_name(log_lines)
+-    else:
+-        with open(fuzzer_info_file, "r") as f:
+-            fuzzer_info = json.load(f)
+-        fuzzer_name = fuzzer_info["fuzzer_name"]
+-        remote_harness_path = fuzzer_info["fuzzer_path"]
+-
+-    if fuzzer_name == "" or remote_harness_path == "":
+-        print(f"Fuzzer info incomplete in file: {fuzzer_info_file}")
+-        return project_name, function_signature, 0, 0
+-
+-    include_file = work_dir / "include_path.txt"
+-    include_path_set: set[str] = set()
+-    if include_file.exists():
+-        for line in include_file.read_text().splitlines():
+-            include_path_set.add(line.strip())
+-
+-    # print("harness_path:", remote_harness_path)
+-    remote_harness_path = Path(remote_harness_path)
++    record: dict = {"project": project_name, "function": function_signature, "work_dir": str(work_dir),
++                    "eval_dir": None, "fuzz_result": None}
++
++    def tool_failed(msg: str) -> CoverageResult:
++        return CoverageResult(CoverageStatus.TOOL_FAILED, benchcfg.coverage_metric, error_message=msg)
+ 
+     try:
+-        # get the evaluator
+-        evaluator = HarnessEval(benchcfg=benchcfg, function_signature=function_signature,
+-                                project_name=project_name, local_harness=local_harness_file, n_run=1)
+-        if evaluator.early_exit_flag:
+-            return project_name, function_signature, 0, 0
+-        init_cov, final_cov, total_edges, _ = evaluator.eval_harness(fuzzer_name=fuzzer_name, harness_path=remote_harness_path, include_path_set=include_path_set)
+-
+-        # copy harness file to local project dir
+-        eval_harness_dir = evaluator.save_dir / "harness.txt"
+-        shutil.copy(local_harness_file, eval_harness_dir)
+-
+-        # save coverage
+-        edge_pct = round(final_cov / total_edges * 100, 2) if total_edges > 0 else 0.0
+-        improvement_pct = round((final_cov - init_cov) / init_cov * 100, 2) if init_cov > 0 else 0.0
+-        cov_file = evaluator.save_dir / "cov.txt"
+-        with open(cov_file, "w") as f:
+-            f.write(f"Initial coverage: {init_cov}\n")
+-            f.write(f"Final coverage: {final_cov}\n")
+-            f.write(f"Total edges: {total_edges}\n")
+-            f.write(f"Edge coverage %: {edge_pct}\n")
+-            f.write(f"Improvement %: {improvement_pct}\n")
+-
+-        return project_name, function_signature, init_cov, final_cov
++        fuzzer_info_file = work_dir / "fuzzer_info.json"
++        if not fuzzer_info_file.exists():
++            # read the agent log
++            agent_log_file = work_dir / "agent.log"
++            log_lines = agent_log_file.read_text().splitlines()
++            # read the fuzzer name and harness path
++            fuzzer_name, remote_harness_path = extract_fuzzer_name(log_lines)
++        else:
++            with open(fuzzer_info_file, "r") as f:
++                fuzzer_info = json.load(f)
++            fuzzer_name = fuzzer_info["fuzzer_name"]
++            remote_harness_path = fuzzer_info["fuzzer_path"]
++
++        if fuzzer_name == "" or remote_harness_path == "":
++            print(f"Fuzzer info incomplete in file: {fuzzer_info_file}")
++            result = tool_failed(f"fuzzer info incomplete: {fuzzer_info_file}")
++        else:
++            include_file = work_dir / "include_path.txt"
++            include_path_set: set[str] = set()
++            if include_file.exists():
++                for line in include_file.read_text().splitlines():
++                    include_path_set.add(line.strip())
++
++            # get the evaluator
++            evaluator = HarnessEval(benchcfg=benchcfg, function_signature=function_signature,
++                                    project_name=project_name, local_harness=local_harness_file, n_run=1)
++            record["eval_dir"] = str(evaluator.save_dir)
++            if evaluator.early_exit_flag:
++                result = tool_failed("evaluation environment early exit")
++            else:
++                result, record["fuzz_result"] = evaluator.eval_harness(fuzzer_name=fuzzer_name, harness_path=Path(remote_harness_path),
++                                                                       include_path_set=include_path_set)
++                # copy harness file to local project dir
++                shutil.copy(local_harness_file, evaluator.save_dir / "harness.txt")
+     except Exception as e:
+         print(f"Error processing {project_name}/{function_signature}: {e}")
+-        return project_name, function_signature, 0, 0
++        result = tool_failed(f"{type(e).__name__}: {e}")
++
++    record["coverage"] = result.to_dict()
++    if record["eval_dir"]:
++        with open(Path(record["eval_dir"]) / "coverage.json", "w") as f:
++            json.dump(record, f, indent=2)
++    return project_name, function_signature, record
+ 
+ def run_evaluation(output_path: Path, benchcfg:BenchConfig, n_run:int=1, n_partitations:int=1, partitation_id:int=0): 
+     """Run the evaluation in parallel"""
+@@ -162,6 +165,13 @@ def run_evaluation(output_path: Path, benchcfg:BenchConfig, n_run:int=1, n_parti
+     with multiprocessing.Pool(processes=num_processes) as pool: # type: ignore
+         results = pool.map(process_single_result, args_list) # type: ignore
+ 
++    # one record per attempted target, including failures (status + null numbers)
++    eval_res = {f"{project}+{func_sig}": record for project, func_sig, record in results}
++    res_name = "evaluation_results.json" if n_partitations <= 1 else f"evaluation_results_part{partitation_id}.json"
++    with open(output_path / res_name, "w") as f:
++        json.dump(eval_res, f, indent=4)
++    print(f"Wrote {len(eval_res)} results to {output_path / res_name}")
++
+ if __name__ == "__main__":
+ 
+     
+diff --git a/agent/evo_gen.py b/agent/evo_gen.py
+index d7d1eff..066c47d 100644
+--- a/agent/evo_gen.py
++++ b/agent/evo_gen.py
+@@ -19,7 +19,10 @@ from utils.misc import extract_name
+ from agent.gen import ISSTAFuzzer
+ from agent.modules.fuzzenv import FuzzENV
+ from agent.modules.compilation import CompilerWraper
+-from agent.modules.fitness import FitnessScores, extract_coverage_from_log
++from agent.modules.fitness import (
++    FitnessScores, extract_coverage_from_log, prompt_value,
++    STATUS_COMPILE_FAILED, STATUS_EVAL_ERROR, STATUS_EVAL_SKIPPED,
++)
+ from agent.modules.population import (
+     Archive, HarnessGenome,
+     OP_CROSSOVER, OP_INITIAL, OP_CACHED, OP_MUTATION, OP_REPAIR,
+@@ -340,6 +343,8 @@ class EvoISSTAFuzzer:
+             env = self._get_eval_env()
+             if env.early_exit_flag:
+                 self.logger.warning("Eval env early-exit; skipping evaluation.")
++                genome.fitness = FitnessScores(status=STATUS_EVAL_SKIPPED,
++                                               error_message="evaluation environment early exit")
+                 return genome
+ 
+             compiler = env.make_compiler()
+@@ -363,7 +368,7 @@ class EvoISSTAFuzzer:
+             if compile_msg != CompileResults.Success.value:
+                 genome.compile_ok    = False
+                 genome.compile_error = result.get("build_msg", compile_msg)
+-                genome.fitness       = FitnessScores(compile_ok=False)
++                genome.fitness       = FitnessScores(compile_ok=False, status=STATUS_COMPILE_FAILED)
+                 self.logger.info(
+                     f"  COMPILE FAILED — {compile_msg[:80]}"
+                 )
+@@ -394,9 +399,10 @@ class EvoISSTAFuzzer:
+             genome.fitness       = fitness
+             genome.fuzz_log_path = str(log_path)
+ 
++            exec_s = "None" if fitness.exec_per_sec is None else f"{fitness.exec_per_sec:.0f}"
+             self.logger.info(
+-                f"  {genome.genome_id}: cov={fitness.coverage}, "
+-                f"ft={fitness.features}, exec/s={fitness.exec_per_sec:.0f}, "
++                f"  {genome.genome_id}: status={fitness.status}, cov={fitness.coverage}, "
++                f"ft={fitness.features}, exec/s={exec_s}, "
+                 f"crash={fitness.crash_found}, "
+                 f"total_fitness={fitness.total():.4f}"
+             )
+@@ -406,6 +412,8 @@ class EvoISSTAFuzzer:
+                 f"Evaluation error for {genome.genome_id}: {exc}"
+             )
+             traceback.print_exc()
++            genome.fitness = FitnessScores(status=STATUS_EVAL_ERROR,
++                                           error_message=f"{type(exc).__name__}: {exc}")
+ 
+         return genome
+ 
+@@ -443,19 +451,27 @@ class EvoISSTAFuzzer:
+                 )
+ 
+         archive_best = self.archive.best(1)
++        # statistics over measured trials only; None when no trial produced statistics
++        covs = [g.fitness.coverage for g in population if g.fitness.coverage is not None]
++        fts  = [g.fitness.features for g in population if g.fitness.features is not None]
++        status_counts: dict = {}
++        for g in population:
++            status_counts[g.fitness.status] = status_counts.get(g.fitness.status, 0) + 1
+         stats: dict = {
+             "generation":          generation,
+             "population_size":     len(population),
+             "n_compiled":          sum(1 for g in population if g.compile_ok),
+-            "max_coverage":        max((g.fitness.coverage for g in population), default=0),
+-            "max_features":        max((g.fitness.features for g in population), default=0),
++            "n_with_stats":        len(covs),
++            "fitness_status_counts": status_counts,
++            "max_coverage":        max(covs, default=None),
++            "max_features":        max(fts, default=None),
+             "avg_fitness":         (
+                 sum(g.total_fitness() for g in population) / len(population)
+                 if population else 0.0
+             ),
+             "crash_found":         any(g.fitness.crash_found for g in population),
+             "archive_size":        len(self.archive),
+-            "archive_best_cov":    archive_best[0].fitness.coverage if archive_best else 0,
++            "archive_best_cov":    archive_best[0].fitness.coverage if archive_best else None,
+             "archive_best_fitness": archive_best[0].total_fitness() if archive_best else 0.0,
+         }
+         self.generation_stats.append(stats)
+@@ -562,8 +578,8 @@ class EvoISSTAFuzzer:
+                         strategy = random.choice(MUTATION_STRATEGIES)
+                         cov_fb   = (
+                             f"Parent {parent.genome_id} achieved "
+-                            f"{parent.fitness.coverage} edges and "
+-                            f"{parent.fitness.features} features. "
++                            f"{prompt_value(parent.fitness.coverage)} edges and "
++                            f"{prompt_value(parent.fitness.features)} features. "
+                             "Try to reach code paths it does not."
+                         )
+                         code   = self.mutation_op.mutate(
+@@ -635,8 +651,8 @@ class EvoISSTAFuzzer:
+             "project":             self.project_name,
+             "total_generations":   len(self.generation_stats),
+             "archive_size":        len(self.archive),
+-            "best_coverage":       best[0].fitness.coverage  if best else 0,
+-            "best_features":       best[0].fitness.features  if best else 0,
++            "best_coverage":       best[0].fitness.coverage  if best else None,
++            "best_features":       best[0].fitness.features  if best else None,
+             "best_fitness":        best[0].total_fitness()   if best else 0.0,
+             "crash_found":         any(
+                 g.fitness.crash_found for g in self.archive.all_valid()
+diff --git a/agent/modules/fitness.py b/agent/modules/fitness.py
+index cf2edac..765638a 100644
+--- a/agent/modules/fitness.py
++++ b/agent/modules/fitness.py
+@@ -10,6 +10,7 @@ from __future__ import annotations
+ import re
+ from dataclasses import dataclass, field
+ from pathlib import Path
++from typing import Optional
+ 
+ 
+ # ---------------------------------------------------------------------------
+@@ -27,6 +28,22 @@ NORM_EXEC      = 2000.0   # exec/s considered "fast"
+ 
+ CRASH_BONUS    = 0.60     # extra score for harnesses that find real bugs
+ 
++# Trial outcome stored with every FitnessScores. Only STATUS_OK carries measured
++# libFuzzer statistics; every other status stores None for them, never 0.
++STATUS_OK             = "OK"
++STATUS_NOT_EVALUATED  = "NOT_EVALUATED"
++STATUS_COMPILE_FAILED = "COMPILE_FAILED"
++STATUS_NO_LOG         = "NO_LOG"          # fuzz log missing, unreadable or empty
++STATUS_NO_STATS       = "NO_STATS"        # log present but no libFuzzer 'cov:' status line
++STATUS_EVAL_SKIPPED   = "EVAL_SKIPPED"    # evaluation environment early exit
++STATUS_EVAL_ERROR     = "EVAL_ERROR"      # exception during compile / trial
++
++
++def prompt_value(value: Optional[float]) -> str:
++    """Render a statistic for LLM prompts. Missing statistics are shown as 0, exactly
++    as before statuses were recorded, so prompt text (an experimental input) is unchanged."""
++    return str(0 if value is None else value)
++
+ 
+ @dataclass
+ class FitnessScores:
+@@ -37,38 +54,48 @@ class FitnessScores:
+     ``total()`` returns a scalar in [0, ~1.6] for ranking.
+     """
+ 
+-    # --- raw metrics from fuzzing log ---
+-    coverage: int   = 0       # libFuzzer 'cov:' value (edges covered)
+-    features: int   = 0       # libFuzzer 'ft:'  value (corpus features)
+-    exec_per_sec: float = 0.0 # libFuzzer 'exec/s:' (throughput)
+-    stability: float    = 1.0 # 1.0 = DONE reached, 0.5 = partial, 0.0 = hung
++    # --- raw metrics from fuzzing log (None = not measured, see status) ---
++    coverage: Optional[int]   = None      # libFuzzer 'cov:' value (edges covered)
++    features: Optional[int]   = None      # libFuzzer 'ft:'  value (corpus features)
++    exec_per_sec: Optional[float] = None  # libFuzzer 'exec/s:' (throughput)
++    stability: Optional[float]    = None  # 1.0 = DONE reached, 0.5 = partial, 0.0 = hung
+ 
+     # --- derived / boolean ---
+     crash_found: bool   = False   # harness triggered a real sanitizer error
+     compile_ok:  bool   = False   # False → total() == 0
+ 
++    status: str = STATUS_NOT_EVALUATED
++    error_message: Optional[str] = None
++
+     def total(self) -> float:
+         """Scalar fitness used for selection and archiving."""
+         if not self.compile_ok:
+             return 0.0
++        bonus = CRASH_BONUS if self.crash_found else 0.0
++        if self.status != STATUS_OK:
++            # No statistics were measured: the objective terms contribute nothing to
++            # selection. The record keeps None (with the status), not a fake 0.
++            return bonus
+ 
+-        cov_norm   = min(self.coverage    / NORM_COVERAGE,  1.0)
+-        feat_norm  = min(self.features    / NORM_FEATURES,  1.0)
+-        exec_norm  = min(self.exec_per_sec / NORM_EXEC,     1.0)
++        cov_norm   = min(self.coverage / NORM_COVERAGE,             1.0)  # type: ignore[operator]
++        feat_norm  = min((self.features or 0) / NORM_FEATURES,      1.0)
++        exec_norm  = min((self.exec_per_sec or 0.0) / NORM_EXEC,    1.0)
+ 
+         base = (
+             W_COVERAGE  * cov_norm   +
+             W_FEATURES  * feat_norm  +
+             W_EXEC      * exec_norm  +
+-            W_STABILITY * self.stability
++            W_STABILITY * (self.stability or 0.0)
+         )
+-        return base + (CRASH_BONUS if self.crash_found else 0.0)
++        return base + bonus
+ 
+     def dominates(self, other: "FitnessScores") -> bool:
+         """
+         Pareto dominance: self >= other in all objectives AND
+-        strictly better in at least one.
++        strictly better in at least one. Unmeasured scores dominate nothing.
+         """
++        if self.status != STATUS_OK or other.status != STATUS_OK:
++            return False
+         objectives = ["coverage", "features", "exec_per_sec"]
+         better_in_one = False
+         for attr in objectives:
+@@ -81,9 +108,11 @@ class FitnessScores:
+         return better_in_one
+ 
+     def __repr__(self) -> str:
++        exec_s = "None" if self.exec_per_sec is None else f"{self.exec_per_sec:.0f}"
++        stable = "None" if self.stability is None else f"{self.stability:.2f}"
+         return (
+-            f"FitnessScores(cov={self.coverage}, ft={self.features}, "
+-            f"exec={self.exec_per_sec:.0f}/s, stable={self.stability:.2f}, "
++            f"FitnessScores(status={self.status}, cov={self.coverage}, ft={self.features}, "
++            f"exec={exec_s}/s, stable={stable}, "
+             f"crash={self.crash_found}, total={self.total():.4f})"
+         )
+ 
+@@ -101,24 +130,34 @@ def extract_coverage_from_log(log_path: Path) -> FitnessScores:
+       #8192     pulse  cov: 48  ft: 72  corp: 4/8b  exec/s: 512  rss: 40Mb
+       #16384    DONE   cov: 48  ft: 72  corp: 4/8b  exec/s: 512  rss: 40Mb
+       stat::number_of_executed_units: 16384
++
++    With -fork=1 the status lines read "#N: cov: X ft: Y corp: Z exec/s: E ...".
++    Returns status NO_LOG / NO_STATS (statistics None) when nothing was measured.
+     """
+-    scores = FitnessScores()
++    scores = FitnessScores(status=STATUS_NO_LOG)
+ 
+     if not log_path.exists():
++        scores.error_message = f"fuzz log not found: {log_path}"
+         return scores
+ 
+     try:
+         content = log_path.read_text(encoding="utf-8", errors="ignore")
+-    except Exception:
++    except Exception as exc:
++        scores.error_message = f"cannot read fuzz log: {exc}"
+         return scores
+ 
+     if not content.strip():
++        scores.error_message = "fuzz log is empty"
+         return scores
+ 
+     # ---- coverage (cov:) ----
+     cov_matches = re.findall(r"\bcov:\s*(\d+)", content)
+     if cov_matches:
+         scores.coverage = max(int(x) for x in cov_matches)
++        scores.status = STATUS_OK
++    else:
++        scores.status = STATUS_NO_STATS
++        scores.error_message = "no libFuzzer 'cov:' status line in fuzz log"
+ 
+     # ---- features (ft:) ----
+     ft_matches = re.findall(r"\bft:\s*(\d+)", content)
+diff --git a/agent/modules/population.py b/agent/modules/population.py
+index 885d2c3..f3a7fa5 100644
+--- a/agent/modules/population.py
++++ b/agent/modules/population.py
+@@ -95,6 +95,8 @@ class HarnessGenome:
+             "compile_error": self.compile_error,
+             "fuzz_log_path": self.fuzz_log_path,
+             "fitness": {
++                "status":        self.fitness.status,
++                "error_message": self.fitness.error_message,
+                 "coverage":     self.fitness.coverage,
+                 "features":     self.fitness.features,
+                 "exec_per_sec": self.fitness.exec_per_sec,
+@@ -235,10 +237,10 @@ class Archive:
+         return len(self._genomes)
+ 
+     def coverage_stats(self) -> dict:
+-        valid = self.all_valid()
+-        if not valid:
+-            return {"max": 0, "mean": 0.0, "min": 0}
+-        covs = [g.fitness.coverage for g in valid]
++        # only genomes with measured statistics; failed trials are not counted as 0
++        covs = [g.fitness.coverage for g in self.all_valid() if g.fitness.coverage is not None]
++        if not covs:
++            return {"max": None, "mean": None, "min": None}
+         return {
+             "max":  max(covs),
+             "mean": sum(covs) / len(covs),
+@@ -247,7 +249,8 @@ class Archive:
+ 
+     def __repr__(self) -> str:
+         stats = self.coverage_stats()
++        mean = "None" if stats["mean"] is None else f"{stats['mean']:.1f}"
+         return (
+             f"Archive(size={len(self._genomes)}/{self.capacity}, "
+-            f"cov_max={stats['max']}, cov_mean={stats['mean']:.1f})"
++            f"cov_max={stats['max']}, cov_mean={mean})"
+         )
+diff --git a/agent/modules/variation.py b/agent/modules/variation.py
+index ede636c..ad5a919 100644
+--- a/agent/modules/variation.py
++++ b/agent/modules/variation.py
+@@ -8,6 +8,7 @@ from typing import Optional
+ from langchain_core.language_models import BaseChatModel
+ from langchain_core.messages import HumanMessage
+ 
++from agent.modules.fitness import prompt_value
+ from agent.modules.population import HarnessGenome
+ from constants import PROJECT_PATH, LanguageType
+ 
+@@ -161,8 +162,8 @@ class MutationOperator:
+             MUTATION_STRATEGY   = strategy,
+             API_CONTEXT         = api_context or "(none)",
+             COVERAGE_FEEDBACK   = coverage_feedback or "(none)",
+-            PARENT_COVERAGE     = str(parent.fitness.coverage),
+-            PARENT_FEATURES     = str(parent.fitness.features),
++            PARENT_COVERAGE     = prompt_value(parent.fitness.coverage),
++            PARENT_FEATURES     = prompt_value(parent.fitness.features),
+             LANGUAGE_NOTE       = _build_language_note(project_lang),
+         )
+ 
+@@ -219,10 +220,10 @@ class CrossoverOperator:
+             FUNCTION_SIGNATURE   = function_signature,
+             PARENT1_CODE         = parent1.code,
+             PARENT2_CODE         = parent2.code,
+-            PARENT1_COVERAGE     = str(parent1.fitness.coverage),
+-            PARENT2_COVERAGE     = str(parent2.fitness.coverage),
+-            PARENT1_FEATURES     = str(parent1.fitness.features),
+-            PARENT2_FEATURES     = str(parent2.fitness.features),
++            PARENT1_COVERAGE     = prompt_value(parent1.fitness.coverage),
++            PARENT2_COVERAGE     = prompt_value(parent2.fitness.coverage),
++            PARENT1_FEATURES     = prompt_value(parent1.fitness.features),
++            PARENT2_FEATURES     = prompt_value(parent2.fitness.features),
+             API_CONTEXT          = api_context or "(none)",
+             LANGUAGE_NOTE        = _build_language_note(project_lang),
+         )
+diff --git a/agent/run_evo_gen.py b/agent/run_evo_gen.py
+index a35479d..8d798b3 100644
+--- a/agent/run_evo_gen.py
++++ b/agent/run_evo_gen.py
+@@ -89,7 +89,7 @@ def _run_one(
+             "function":  function_signature,
+             "elapsed_s": round(elapsed, 1),
+             "n_best":    len(best),
+-            "best_coverage": best[0].fitness.coverage if best else 0,
++            "best_coverage": best[0].fitness.coverage if best else None,
+             "crash_found":   any(g.fitness.crash_found for g in best),
+         }
+         print(
+diff --git a/agent_tools/fuzz_tools/compiler.py b/agent_tools/fuzz_tools/compiler.py
+index 95f7df9..d763ffd 100644
+--- a/agent_tools/fuzz_tools/compiler.py
++++ b/agent_tools/fuzz_tools/compiler.py
+@@ -12,7 +12,8 @@ import random
+ 
+ class Compiler():
+ 
+-    def __init__(self, oss_fuzz_dir: Path, benchmark_dir: Path, project_name: str, new_project_name: str, include_path: Optional[set[str]]=None):
++    def __init__(self, oss_fuzz_dir: Path, benchmark_dir: Path, project_name: str, new_project_name: str, include_path: Optional[set[str]]=None,
++                 sanitizer: Optional[str]=None):
+ 
+         self.oss_fuzz_dir = oss_fuzz_dir
+         self.project_name = project_name
+@@ -23,6 +24,9 @@ class Compiler():
+         self.docker_tool = DockerUtils(oss_fuzz_dir, project_name, new_project_name, self.project_lang)
+ 
+         self.build_harness_cmd = self.oss_tool.get_script_cmd("build_fuzzers")
++        if sanitizer:
++            # helper.py build_fuzzers --clean --sanitizer=<sanitizer> <project>
++            self.build_harness_cmd = self.build_harness_cmd[:-1] + [f"--sanitizer={sanitizer}", self.build_harness_cmd[-1]]
+ 
+         # self.build_harness_cmd = ["python", os.path.join(self.oss_fuzz_dir, "infra", "helper.py"),
+                             # "build_fuzzers", "--clean", self.new_project_name,  "--", "-fsanitize=fuzzer", "-fsanitize=address", "-fsanitize-coverage=trace-pc-guard"]
+diff --git a/agent_tools/fuzz_tools/coverage_result.py b/agent_tools/fuzz_tools/coverage_result.py
+new file mode 100644
+index 0000000..81e84b8
+--- /dev/null
++++ b/agent_tools/fuzz_tools/coverage_result.py
+@@ -0,0 +1,62 @@
++"""Structured outcome of one coverage measurement.
++
++A failed measurement is never stored as 0: only OK and NO_COVERAGE carry
++numbers, every other status stores None for covered/total.
++"""
++from __future__ import annotations
++
++from dataclasses import asdict, dataclass, field
++from enum import Enum
++from typing import Any, Optional
++
++
++class CoverageStatus(str, Enum):
++    OK = "OK"                      # measured, covered > 0
++    NO_COVERAGE = "NO_COVERAGE"    # measured, covered == 0 (a real zero)
++    EMPTY_CORPUS = "EMPTY_CORPUS"  # fuzzing produced no inputs to replay
++    BUILD_FAILED = "BUILD_FAILED"  # fuzzing or coverage build failed
++    TOOL_FAILED = "TOOL_FAILED"    # docker / replay / llvm-profdata / llvm-cov failed
++    PARSE_FAILED = "PARSE_FAILED"  # llvm-cov output missing, malformed, or nothing in scope
++    TIMEOUT = "TIMEOUT"            # replay exceeded coverage_total_timeout
++
++
++MEASURED_STATUSES = frozenset({CoverageStatus.OK, CoverageStatus.NO_COVERAGE})
++
++
++@dataclass
++class CoverageResult:
++    status: CoverageStatus
++    metric: str                               # llvm-cov summary key: branches | regions | lines | functions
++    covered: Optional[int] = None             # covered units of `metric` inside scope_root
++    total: Optional[int] = None               # instrumented units of `metric` inside scope_root
++    raw_output_path: Optional[str] = None     # directory with build log, replay log, export.json, profdata
++    error_message: Optional[str] = None
++    scope_root: Optional[str] = None          # source-tree prefix counted as "the library"
++    inputs_replayed: Optional[int] = None
++    inputs_failed: Optional[int] = None       # replays with non-zero exit (their coverage may be missing)
++    metrics: dict[str, Any] = field(default_factory=dict)
++
++    def __post_init__(self) -> None:
++        self.status = CoverageStatus(self.status)
++        if self.status in MEASURED_STATUSES:
++            if not isinstance(self.covered, int) or not isinstance(self.total, int):
++                raise ValueError(f"{self.status.value} requires integer covered/total")
++        else:
++            self.covered = None
++            self.total = None
++
++    @property
++    def measured(self) -> bool:
++        return self.status in MEASURED_STATUSES
++
++    @property
++    def percent(self) -> Optional[float]:
++        if not self.measured or not self.total:
++            return None
++        return round(self.covered / self.total * 100, 2)  # type: ignore[operator]
++
++    def to_dict(self) -> dict[str, Any]:
++        d = asdict(self)
++        d["status"] = self.status.value
++        d["percent"] = self.percent
++        return d
+diff --git a/agent_tools/fuzz_tools/llvm_cov.py b/agent_tools/fuzz_tools/llvm_cov.py
+new file mode 100644
+index 0000000..04e7481
+--- /dev/null
++++ b/agent_tools/fuzz_tools/llvm_cov.py
+@@ -0,0 +1,188 @@
++"""Source-based coverage (llvm-cov) of a harness's final corpus.
++
++Pipeline: rebuild the harness with OSS-Fuzz `--sanitizer=coverage`, replay each
++corpus input once inside the project image (llvm_cov_replay.sh), merge the raw
++profiles with llvm-profdata and export a summary with `llvm-cov export
++-summary-only`. Only files under the library's source root are counted, and the
++harness file itself is excluded.
++"""
++from __future__ import annotations
++
++import json
++import logging
++import shutil
++import time
++from pathlib import Path, PurePosixPath
++from typing import Any, Optional
++
++from agent_tools.fuzz_tools.compiler import Compiler
++from agent_tools.fuzz_tools.coverage_result import CoverageResult, CoverageStatus
++from constants import PROJECT_PATH, CompileResults, DockerResults, LanguageType
++from utils.docker_utils import DockerUtils
++
++METRICS = ("branches", "regions", "lines", "functions")
++REPLAY_SCRIPT = "llvm_cov_replay.sh"
++# Files copied from <out>/llmga_cov into the result's raw directory.
++RAW_FILES = ("tool_versions.txt", "replay.tsv", "replay.log", "merge.log",
++             "export.json", "export.err", "merged.profdata")
++
++
++def library_scope_root(harness_path: str | Path, project_name: str) -> str:
++    """Source-tree prefix of the target library, taken from the harness location.
++
++    OSS-Fuzz checks the project out under /src/<repo>/ and benchmark harnesses
++    live inside it (e.g. /src/cjson/fuzzing/x.c -> /src/cjson/). A harness placed
++    directly in /src falls back to /src/<project_name>/.
++    """
++    parts = PurePosixPath(str(harness_path)).parts
++    if len(parts) >= 4 and parts[0] == "/" and parts[1] == "src":
++        return f"/src/{parts[2]}/"
++    return f"/src/{project_name}/"
++
++
++def scoped_summary(export: dict[str, Any], scope_root: str,
++                   exclude: set[str]) -> tuple[dict[str, dict[str, int]], list[str], set[str]]:
++    """Sum llvm-cov per-file summaries over files under scope_root, minus `exclude`.
++
++    Returns (totals per metric, files counted, metrics present in at least one file).
++    """
++    totals = {m: {"covered": 0, "count": 0} for m in METRICS}
++    files: list[str] = []
++    present: set[str] = set()
++    for unit in export["data"]:
++        for entry in unit["files"]:
++            name = entry["filename"]
++            if not name.startswith(scope_root) or name in exclude:
++                continue
++            files.append(name)
++            summary = entry["summary"]
++            for m in METRICS:
++                if m in summary:
++                    present.add(m)
++                    totals[m]["covered"] += int(summary[m]["covered"])
++                    totals[m]["count"] += int(summary[m]["count"])
++    return totals, sorted(files), present
++
++
++def result_from_export(export: Any, scope_root: str, exclude: set[str], metric: str,
++                       **extra: Any) -> CoverageResult:
++    """Turn a parsed `llvm-cov export -summary-only` document into a CoverageResult."""
++    def failed(msg: str) -> CoverageResult:
++        return CoverageResult(CoverageStatus.PARSE_FAILED, metric, error_message=msg,
++                              scope_root=scope_root, **extra)
++
++    try:
++        totals, files, present = scoped_summary(export, scope_root, exclude)
++        whole = {m: {"covered": int(v["covered"]), "count": int(v["count"])}
++                 for m, v in export["data"][0].get("totals", {}).items() if m in METRICS}
++    except (KeyError, IndexError, TypeError, ValueError) as e:
++        return failed(f"malformed llvm-cov export: {type(e).__name__}: {e}")
++
++    if not files:
++        return failed(f"no source files under scope_root {scope_root}")
++    if metric not in present:
++        return failed(f"metric '{metric}' not present in llvm-cov export")
++    if totals[metric]["count"] == 0:
++        return failed(f"metric '{metric}' has zero instrumented units under {scope_root}")
++
++    covered, total = totals[metric]["covered"], totals[metric]["count"]
++    status = CoverageStatus.OK if covered > 0 else CoverageStatus.NO_COVERAGE
++    return CoverageResult(status, metric, covered=covered, total=total, scope_root=scope_root,
++                          metrics={"scope": totals, "whole_binary": whole, "files_in_scope": files},
++                          **extra)
++
++
++def parse_replay_tsv(path: Path) -> tuple[int, int]:
++    """(inputs replayed, inputs with non-zero exit) from replay.tsv."""
++    replayed = failed = 0
++    for line in path.read_text(errors="replace").splitlines():
++        if not line.strip():
++            continue
++        replayed += 1
++        if line.rsplit("\t", 1)[-1].strip() != "0":
++            failed += 1
++    return replayed, failed
++
++
++class LlvmCovCollector:
++
++    def __init__(self, oss_fuzz_dir: Path, benchmark_dir: Path, project_name: str, new_project_name: str,
++                 project_lang: LanguageType, raw_dir: Path, metric: str = "branches",
++                 input_timeout: int = 25, total_timeout: int = 3600,
++                 include_path: Optional[set[str]] = None, logger: Optional[logging.Logger] = None) -> None:
++        if metric not in METRICS:
++            raise ValueError(f"unknown coverage metric {metric!r}; expected one of {METRICS}")
++        self.oss_fuzz_dir = Path(oss_fuzz_dir)
++        self.benchmark_dir = Path(benchmark_dir)
++        self.project_name = project_name
++        self.new_project_name = new_project_name
++        self.project_lang = project_lang
++        self.raw_dir = Path(raw_dir)
++        self.metric = metric
++        self.input_timeout = input_timeout
++        self.total_timeout = total_timeout
++        self.include_path = include_path
++        self.logger = logger
++
++    def _log(self, msg: str) -> None:
++        if self.logger:
++            self.logger.info(msg)
++
++    def collect(self, harness_code: str, harness_path: Path, fuzzer_name: str, corpus_dir: Path) -> CoverageResult:
++        self.raw_dir.mkdir(parents=True, exist_ok=True)
++        scope_root = library_scope_root(harness_path, self.project_name)
++        base: dict[str, Any] = {"raw_output_path": str(self.raw_dir), "scope_root": scope_root}
++
++        corpus_dir = Path(corpus_dir).resolve()
++        inputs = sorted(p for p in corpus_dir.iterdir() if p.is_file()) if corpus_dir.is_dir() else []
++        if not inputs:
++            return CoverageResult(CoverageStatus.EMPTY_CORPUS, self.metric,
++                                  error_message=f"no inputs in {corpus_dir}", inputs_replayed=0, **base)
++
++        # 1. coverage build of the same harness
++        compiler = Compiler(self.oss_fuzz_dir, self.benchmark_dir, self.project_name, self.new_project_name,
++                            self.include_path, sanitizer="coverage")
++        compile_res, build_msg = compiler.compile_harness(harness_code, harness_path, fuzzer_name)
++        (self.raw_dir / "coverage_build.log").write_text(build_msg or "", errors="replace")
++        if compile_res != CompileResults.Success:
++            return CoverageResult(CoverageStatus.BUILD_FAILED, self.metric,
++                                  error_message=f"coverage build failed: {compile_res.value}", **base)
++
++        # 2. replay + merge + export inside the project image
++        local_out = self.oss_fuzz_dir / "build" / "out" / self.new_project_name
++        shutil.copy(Path(PROJECT_PATH) / "agent_tools" / "fuzz_tools" / REPLAY_SCRIPT, local_out / REPLAY_SCRIPT)
++        docker = DockerUtils(self.oss_fuzz_dir, self.project_name, self.new_project_name, self.project_lang)
++        volumes = {str(local_out): {"bind": "/out", "mode": "rw"},
++                   str(corpus_dir): {"bind": "/corpus", "mode": "ro"}}
++        self._log(f"llvm-cov replay of {len(inputs)} inputs for {fuzzer_name}")
++        t0 = time.monotonic()
++        msg = docker.run_cmd(["bash", f"/out/{REPLAY_SCRIPT}", fuzzer_name, str(self.input_timeout)],
++                             timeout=self.total_timeout, volumes=volumes, working_dir="/out")
++        elapsed = time.monotonic() - t0
++        (self.raw_dir / "replay_stdout.txt").write_text(msg, errors="replace")
++        for name in RAW_FILES:
++            src = local_out / "llmga_cov" / name
++            if src.exists():
++                shutil.copy(src, self.raw_dir / name)
++
++        replayed = failed = None
++        if (self.raw_dir / "replay.tsv").exists():
++            replayed, failed = parse_replay_tsv(self.raw_dir / "replay.tsv")
++        base.update(inputs_replayed=replayed, inputs_failed=failed)
++
++        if msg.startswith(DockerResults.Error.value):
++            status = CoverageStatus.TIMEOUT if elapsed >= self.total_timeout else CoverageStatus.TOOL_FAILED
++            return CoverageResult(status, self.metric, error_message=msg.strip()[-500:], **base)
++        if "LLMGA_COV_DONE" not in msg:
++            marker = next((ln for ln in msg.splitlines() if "LLMGA_COV_ERROR" in ln), msg.strip()[-500:])
++            return CoverageResult(CoverageStatus.TOOL_FAILED, self.metric, error_message=marker, **base)
++
++        # 3. parse
++        try:
++            export = json.loads((self.raw_dir / "export.json").read_text())
++        except (OSError, json.JSONDecodeError) as e:
++            return CoverageResult(CoverageStatus.PARSE_FAILED, self.metric,
++                                  error_message=f"cannot read export.json: {e}", **base)
++        return result_from_export(export, scope_root, {str(harness_path)}, self.metric,
++                                  raw_output_path=base["raw_output_path"],
++                                  inputs_replayed=replayed, inputs_failed=failed)
+diff --git a/agent_tools/fuzz_tools/llvm_cov_replay.sh b/agent_tools/fuzz_tools/llvm_cov_replay.sh
+new file mode 100644
+index 0000000..ec62e86
+--- /dev/null
++++ b/agent_tools/fuzz_tools/llvm_cov_replay.sh
+@@ -0,0 +1,42 @@
++#!/bin/bash
++# Replay every corpus input once in an OSS-Fuzz `--sanitizer=coverage` build
++# (-fprofile-instr-generate -fcoverage-mapping) and export an llvm-cov summary.
++# Runs inside the project image with /out (build output) and /corpus (read-only) mounted.
++# Usage: llvm_cov_replay.sh <fuzzer_name> <per_input_timeout_seconds>
++# The caller reads the LLMGA_COV_DONE / LLMGA_COV_ERROR marker from stdout.
++set -u
++FUZZER="/out/$1"
++T="$2"
++W=/out/llmga_cov
++
++rm -rf "$W"
++mkdir -p "$W/profraw"
++{ llvm-cov --version; llvm-profdata --version; } > "$W/tool_versions.txt" 2>&1
++: > "$W/replay.tsv"
++: > "$W/replay.log"
++
++# One process per input, in byte order of file names: a crashing or hanging
++# input cannot hide the coverage of the others, and the order is reproducible.
++i=0
++while IFS= read -r name; do
++    [ -f "/corpus/$name" ] || continue
++    i=$((i + 1))
++    echo "=== [$i] $name" >> "$W/replay.log"
++    LLVM_PROFILE_FILE="$W/profraw/$i.profraw" timeout -s KILL "$T" "$FUZZER" "/corpus/$name" >> "$W/replay.log" 2>&1
++    printf '%s\t%s\n' "$name" "$?" >> "$W/replay.tsv"
++done < <(ls -1A /corpus | LC_ALL=C sort)
++
++ls "$W"/profraw/*.profraw > "$W/profraw.list" 2>/dev/null
++if [ ! -s "$W/profraw.list" ]; then
++    echo "LLMGA_COV_ERROR no_profraw inputs=$i"
++    exit 2
++fi
++if ! llvm-profdata merge -sparse -f "$W/profraw.list" -o "$W/merged.profdata" > "$W/merge.log" 2>&1; then
++    echo "LLMGA_COV_ERROR profdata_merge inputs=$i"
++    exit 3
++fi
++if ! llvm-cov export -summary-only -instr-profile="$W/merged.profdata" "$FUZZER" > "$W/export.json" 2> "$W/export.err"; then
++    echo "LLMGA_COV_ERROR llvm_cov_export inputs=$i"
++    exit 4
++fi
++echo "LLMGA_COV_DONE inputs=$i"
+diff --git a/agent_tools/results_analysis.py b/agent_tools/results_analysis.py
+index a3c1fdb..49979ab 100644
+--- a/agent_tools/results_analysis.py
++++ b/agent_tools/results_analysis.py
+@@ -175,70 +175,39 @@ def run_agent_res(output_path: Path, semantic_mode:str, n_run:int=1, language: L
+             json.dump(success_json, f, indent=4)
+ 
+ 
+-def get_evaluation_results(eval_path: Path) -> tuple[float, float, float, float]:
+-
+-    eval_res: dict[str, tuple[int, int]] = {}
+-    run_path_list = get_run_path(eval_path, n_run=1)
+-    print(f"Found {len(run_path_list)} run1 directories.")
+-    for run_dir in sorted(run_path_list):
+-        cov_file = run_dir / "cov.txt"
+-        function_file = run_dir / "function.txt"
+-        if not function_file.exists():
+-            print(f"Function signature file not found: {function_file}")
+-            continue
+-        function_sig = function_file.read_text().strip()
+-
+-        key = "{}+{}".format(run_dir.parent.parent.name, function_sig)
+-        if not cov_file.exists():
+-            print(f"Coverage file not found: {cov_file}")
+-            eval_res[key] = (0, 0, 0, 0.0, 0.0)
+-            continue
+-
+-        # check whether the fuzz crashed (note: crash does NOT prevent coverage
+-        # collection when ignore_crashes=true; we still read cov.txt)
+-        log_file = run_dir / "agent.log"
+-        had_crash = log_file.exists() and "ValResult.Crash" in log_file.read_text()
+-
+-        cov_lines = cov_file.read_text().split("\n")
+-        try:
+-            init_cov  = int(cov_lines[0].split(":")[-1].strip())
+-            final_cov = int(cov_lines[1].split(":")[-1].strip())
+-        except (ValueError, IndexError):
+-            init_cov, final_cov = 0, 0
+-        total_edges    = int(cov_lines[2].split(":")[-1].strip())   if len(cov_lines) > 2 and cov_lines[2].startswith("Total edges")    else 0
+-        edge_pct       = float(cov_lines[3].split(":")[-1].strip()) if len(cov_lines) > 3 and cov_lines[3].startswith("Edge coverage")  else 0.0
+-        improvement_pct= float(cov_lines[4].split(":")[-1].strip()) if len(cov_lines) > 4 and cov_lines[4].startswith("Improvement")    else 0.0
+-
+-        # If the fuzzer crashed AND there was no coverage, mark as crash (-1,-1).
+-        # If there WAS coverage despite the crash, keep the coverage data.
+-        if had_crash and init_cov == 0:
+-            eval_res[key] = (-1, -1, 0, 0.0, 0.0)
+-        else:
+-            eval_res[key] = (init_cov, final_cov, total_edges, edge_pct, improvement_pct)
+-
+-    # do some statistics
+-    crash_count     = sum(1 for _, v in eval_res.items() if v[0] == -1 and v[1] == -1)
+-    zero_init_count = sum(1 for _, v in eval_res.items() if v[0] == 0  and v[1] == 0)
+-    no_improve_count= sum(1 for _, v in eval_res.items() if v[0] == v[1] and v[0] > 0)
+-    improved_count  = sum(1 for _, v in eval_res.items() if v[1] > v[0])
+-
+-    valid = [v for v in eval_res.values() if v[0] > 0 and v[2] > 0]
+-    avg_edge_pct      = round(sum(v[3] for v in valid) / len(valid), 2) if valid else 0.0
+-    avg_improvement   = round(sum(v[4] for v in valid) / len(valid), 2) if valid else 0.0
+-
+-    print(f"Total evaluated functions: {len(eval_res)}")
+-    print(f"Functions with crashes during evaluation: {crash_count / len(eval_res) * 100:.2f}% ({crash_count})")
+-    print(f"Functions with not reached: {zero_init_count / len(eval_res) * 100:.2f}% ({zero_init_count})")
+-    print(f"Functions with no improvement in coverage: {no_improve_count / len(eval_res) * 100:.2f}% ({no_improve_count})")
+-    print(f"Functions with improved coverage: {improved_count / len(eval_res) * 100:.2f}% ({improved_count})")
+-    print(f"Avg edge coverage % (of total binary edges): {avg_edge_pct:.2f}%")
+-    print(f"Avg relative improvement (Gen0 → final): {avg_improvement:.2f}%")
+-
+-    # save to file
+-    with open(eval_path / "evaluation_results.json", "w") as f:
+-        json.dump(eval_res, f, indent=4)
+-
+-    return round(crash_count*100 / len(eval_res), 2), round(zero_init_count*100 / len(eval_res), 2), round(no_improve_count*100 / len(eval_res), 2), round(improved_count*100 / len(eval_res), 2)
++def get_evaluation_results(eval_path: Path) -> dict[str, int]:
++    """Summarise evaluation_results*.json written by agent.eval.run_evaluation.
++
++    Counts records per coverage status; statistics use measured results only
++    (status OK / NO_COVERAGE). Failures are counted, never averaged in as 0.
++    """
++    files = sorted(eval_path.glob("evaluation_results*.json"))
++    if not files:
++        raise FileNotFoundError(f"no evaluation_results*.json in {eval_path}")
++
++    records: dict[str, Any] = {}
++    for res_file in files:
++        data = json.loads(res_file.read_text())
++        for key, rec in data.items():
++            if not isinstance(rec, dict) or "coverage" not in rec:
++                raise ValueError(f"{res_file}: legacy entry for {key!r} (pre-llvm-cov format); re-run agent.eval")
++            records[key] = rec
++
++    status_counts: dict[str, int] = defaultdict(int)
++    for rec in records.values():
++        status_counts[rec["coverage"]["status"]] += 1
++    measured = [rec["coverage"] for rec in records.values() if rec["coverage"]["status"] in ("OK", "NO_COVERAGE")]
++
++    print(f"Total evaluated functions: {len(records)}")
++    for status, count in sorted(status_counts.items()):
++        print(f"  {status}: {count}")
++    if measured:
++        metric = measured[0]["metric"]
++        mean_pct = sum(c["percent"] for c in measured) / len(measured)
++        print(f"Mean {metric} coverage over {len(measured)} measured functions: {mean_pct:.2f}%")
++    crashed = sum(1 for rec in records.values() if rec.get("fuzz_result") == "Crash")
++    print(f"Fuzzing runs that reported a crash: {crashed}")
++    return dict(status_counts)
+ 
+ if __name__ == "__main__":
+ 
+diff --git a/bench_cfg.py b/bench_cfg.py
+index cee0ead..51eb126 100644
+--- a/bench_cfg.py
++++ b/bench_cfg.py
+@@ -101,6 +101,13 @@ class BenchConfig:
+         self.no_log = self.config.get('no_log', False)
+         self.ignore_crashes = self.config.get('ignore_crashes', False)
+ 
++        # for reported coverage (llvm-cov on the final corpus, agent/eval.py)
++        self.coverage_metric = self.config.get('coverage_metric', "branches")
++        if self.coverage_metric not in ("branches", "regions", "lines", "functions"):
++            sys.exit(f"ERROR: coverage_metric must be branches|regions|lines|functions, got {self.coverage_metric!r}")
++        self.coverage_input_timeout = self.config.get('coverage_input_timeout', 25)    # seconds per replayed input
++        self.coverage_total_timeout = self.config.get('coverage_total_timeout', 3600)  # seconds for the whole replay
++
+         # for extracting all functions from project (skip generation)
+         self.extract_all_functions = self.config.get('extract_all_functions', False)
+ 
+diff --git a/get_total_edges.py b/get_total_edges.py
+index 02bac37..d3dbcd1 100644
+--- a/get_total_edges.py
++++ b/get_total_edges.py
+@@ -109,6 +109,9 @@ if __name__ == "__main__":
+             data = json.load(f)
+         print("\n--- Coverage% from evo_results.json ---")
+         for key, val in data.items():
+-            best_cov = val.get("best_coverage", 0)
++            best_cov = val.get("best_coverage")
++            if best_cov is None:
++                print(f"  {val['function'][:60]}: no measured coverage")
++                continue
+             pct = compute_coverage_percent(best_cov, total)
+             print(f"  {val['function'][:60]}: {best_cov} edges = {pct:.2f}%")
+diff --git a/scripts/full_campaign_report.sh b/scripts/full_campaign_report.sh
+index 37d053e..f08fd17 100644
+--- a/scripts/full_campaign_report.sh
++++ b/scripts/full_campaign_report.sh
+@@ -79,8 +79,8 @@ jq_max() {
+     python3 -c "
+ import json
+ data = json.load(open('$file'))
+-vals = [g.get('$key', 0) for g in data]
+-print(max(vals))
++vals = [g.get('$key') for g in data if g.get('$key') is not None]
++print(max(vals) if vals else 'N/A')
+ "
+ }
+ 
+@@ -114,6 +114,9 @@ CAMPAIGNS["gpac"]="evo_gpac|gpac|visual_2d_draw_frame|visual_2d_draw_frame visua
+ echo "# LLM+GA Fuzzing Campaign — Full Analysis Report"
+ echo "**Generated:** $(date)"
+ echo ""
++echo "> Coverage columns are the in-loop libFuzzer \`cov:\` fitness signal (whole binary), not the reported"
++echo "> llvm-cov metric (agent/eval.py -> evaluation_results.json). Missing values (None) mean no statistics were measured."
++echo ""
+ echo "---"
+ echo ""
+ echo "## Summary Table"
+@@ -228,7 +231,7 @@ print(f'{'Gen':>4}  {'Compiled':>8}  {'MaxCov':>7}  {'ArchCov':>7}  {'AvgFit':>8
+ print('-' * 55)
+ for g in data:
+     crash_marker = '<<' if g.get('crash_found') else ''
+-    print(f'{g[\"generation\"]:>4}  {g[\"n_compiled\"]:>8}  {g[\"max_coverage\"]:>7}  {g[\"archive_best_cov\"]:>7}  {g[\"avg_fitness\"]:>8.4f}  {str(g[\"crash_found\"]):>6} {crash_marker}')
++    print(f'{g[\"generation\"]:>4}  {g[\"n_compiled\"]:>8}  {str(g[\"max_coverage\"]):>7}  {str(g[\"archive_best_cov\"]):>7}  {g[\"avg_fitness\"]:>8.4f}  {str(g[\"crash_found\"]):>6} {crash_marker}')
+ "
+     echo "\`\`\`"
+     } >> "$REPORT_FILE"
+@@ -267,9 +270,9 @@ for name, d in campaigns.items():
+     data = json.load(open(files[0]))
+     if not data:
+         continue
+-    g0  = data[0].get("archive_best_cov", 0) or data[0].get("max_coverage", 0)
+-    gf  = data[-1].get("archive_best_cov", 0)
+-    imp = f"+{(gf-g0)/g0*100:.0f}%" if g0 > 0 else "N/A"
++    g0  = data[0].get("archive_best_cov") or data[0].get("max_coverage")
++    gf  = data[-1].get("archive_best_cov")
++    imp = f"+{(gf-g0)/g0*100:.0f}%" if g0 and gf is not None else "N/A"
+     print(f"| {name} | {g0} | {gf} | {imp} |")
+ PYEOF
+ } >> "$REPORT_FILE"
+diff --git a/scripts/p02_coverage_reference.sh b/scripts/p02_coverage_reference.sh
+new file mode 100644
+index 0000000..30f5054
+--- /dev/null
++++ b/scripts/p02_coverage_reference.sh
+@@ -0,0 +1,44 @@
++#!/bin/bash
++# PATCH 2 acceptance: llvm-cov pipeline vs. hand-derived reference
++# (tests/p02_reference_expected.md). Needs Docker + oss-fuzz checkout.
++# Usage: bash scripts/p02_coverage_reference.sh [out_dir]
++set -euo pipefail
++CODE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
++OSSFUZZ_DIR="${OSSFUZZ_DIR:-/home/ubuntu/fuzzing_workspace/oss-fuzz}"
++OUT="${1:-/tmp/p02_reference}"
++PROJ=llmga-covref
++
++rm -rf "$OUT"
++mkdir -p "$OUT/corpus_A" "$OUT/corpus_B" "$OUT/corpus_C"
++: > "$OUT/corpus_A/c0_empty";  printf 'AB' > "$OUT/corpus_A/c1_AB"
++cp "$OUT/corpus_A/"* "$OUT/corpus_B/"
++printf 'AC' > "$OUT/corpus_B/c2_AC"; printf 'ZZ' > "$OUT/corpus_B/c3_ZZ"
++printf 'AB' > "$OUT/corpus_C/c1_AB"
++
++run() {  # <label> <corpus letter>: fresh project copy, fresh image + coverage build
++    rm -rf "$OSSFUZZ_DIR/projects/$PROJ"
++    cp -r "$CODE_DIR/tests/fixtures/p02/covref" "$OSSFUZZ_DIR/projects/$PROJ"
++    python "$CODE_DIR/tests/p02_reference_driver.py" --oss-fuzz-dir "$OSSFUZZ_DIR" \
++        --corpus "$OUT/corpus_$2" --out "$OUT/$1" 2>&1 | tail -1
++}
++run A1 A; run A2 A; run A3 A; run B1 B; run C1 C
++
++python - "$OUT" <<'EOF'
++import json, sys
++from pathlib import Path
++out = Path(sys.argv[1])
++r = {k: json.loads((out / k / "result.json").read_text()) for k in ["A1", "A2", "A3", "B1", "C1"]}
++def key(x): return (x["status"], x["covered"], x["total"], json.dumps(x["metrics"].get("scope"), sort_keys=True))
++checks = [
++    ("A determinism (A1 == A2 == A3)", key(r["A1"]) == key(r["A2"]) == key(r["A3"])),
++    ("A branches == 4/6", (r["A1"]["status"], r["A1"]["covered"], r["A1"]["total"]) == ("OK", 4, 6)),
++    ("B branches == 6/6", (r["B1"]["status"], r["B1"]["covered"], r["B1"]["total"]) == ("OK", 6, 6)),
++    ("C branches == 3/6", (r["C1"]["status"], r["C1"]["covered"], r["C1"]["total"]) == ("OK", 3, 6)),
++    ("functions 1/1 in A, B, C", all(r[k]["metrics"]["scope"]["functions"] == {"covered": 1, "count": 1} for k in ["A1", "B1", "C1"])),
++    ("harness excluded, tinylib.c in scope", all(r[k]["metrics"]["files_in_scope"] == ["/src/llmga-covref/tinylib.c"] for k in ["A1", "B1", "C1"])),
++]
++for name, ok in checks:
++    print(f"{'PASS' if ok else 'FAIL'}  {name}")
++print("OVERALL:", "PASS" if all(ok for _, ok in checks) else "FAIL")
++print("tool versions:", (out / "A1" / "raw" / "tool_versions.txt").read_text().strip().replace("\n", " | ")[:300])
++EOF
+diff --git a/tests/fixtures/p02/covref/Dockerfile b/tests/fixtures/p02/covref/Dockerfile
+new file mode 100644
+index 0000000..f792197
+--- /dev/null
++++ b/tests/fixtures/p02/covref/Dockerfile
+@@ -0,0 +1,5 @@
++FROM gcr.io/oss-fuzz-base/base-builder
++RUN mkdir -p $SRC/llmga-covref
++COPY tinylib.c tinylib.h fuzz_tinylib.c $SRC/llmga-covref/
++WORKDIR $SRC/llmga-covref
++COPY build.sh $SRC/
+diff --git a/tests/fixtures/p02/covref/build.sh b/tests/fixtures/p02/covref/build.sh
+new file mode 100644
+index 0000000..1e28cb3
+--- /dev/null
++++ b/tests/fixtures/p02/covref/build.sh
+@@ -0,0 +1,5 @@
++#!/bin/bash -eu
++# Absolute source paths so llvm-cov reports /src/llmga-covref/... file names.
++$CC $CFLAGS -c $SRC/llmga-covref/tinylib.c -o $WORK/tinylib.o
++$CC $CFLAGS -c $SRC/llmga-covref/fuzz_tinylib.c -o $WORK/fuzz_tinylib.o
++$CXX $CXXFLAGS $LIB_FUZZING_ENGINE $WORK/fuzz_tinylib.o $WORK/tinylib.o -o $OUT/fuzz_tinylib
+diff --git a/tests/fixtures/p02/covref/fuzz_tinylib.c b/tests/fixtures/p02/covref/fuzz_tinylib.c
+new file mode 100644
+index 0000000..951b801
+--- /dev/null
++++ b/tests/fixtures/p02/covref/fuzz_tinylib.c
+@@ -0,0 +1,9 @@
++#include <stddef.h>
++#include <stdint.h>
++
++#include "tinylib.h"
++
++int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
++    classify(data, size);
++    return 0;
++}
+diff --git a/tests/fixtures/p02/covref/project.yaml b/tests/fixtures/p02/covref/project.yaml
+new file mode 100644
+index 0000000..96e2d7c
+--- /dev/null
++++ b/tests/fixtures/p02/covref/project.yaml
+@@ -0,0 +1,4 @@
++language: c
++sanitizers:
++  - address
++  - coverage
+diff --git a/tests/fixtures/p02/covref/tinylib.c b/tests/fixtures/p02/covref/tinylib.c
+new file mode 100644
+index 0000000..49cfe87
+--- /dev/null
++++ b/tests/fixtures/p02/covref/tinylib.c
+@@ -0,0 +1,17 @@
++#include "tinylib.h"
++
++/* Three independent conditions, no && / || / ?: / loops / switch.
++ * llvm-cov branch coverage counts a True and a False outcome per condition,
++ * so this file has exactly 3 x 2 = 6 branches (see tests/p02_reference_expected.md). */
++int classify(const uint8_t *data, size_t size) {
++    if (size < 2) {            /* C1 */
++        return 0;
++    }
++    if (data[0] == 'A') {      /* C2 */
++        if (data[1] == 'B') {  /* C3 */
++            return 3;
++        }
++        return 2;
++    }
++    return 1;
++}
+diff --git a/tests/fixtures/p02/covref/tinylib.h b/tests/fixtures/p02/covref/tinylib.h
+new file mode 100644
+index 0000000..16aac31
+--- /dev/null
++++ b/tests/fixtures/p02/covref/tinylib.h
+@@ -0,0 +1,9 @@
++#ifndef TINYLIB_H
++#define TINYLIB_H
++
++#include <stddef.h>
++#include <stdint.h>
++
++int classify(const uint8_t *data, size_t size);
++
++#endif
+diff --git a/tests/fixtures/p02/fork_ok.log b/tests/fixtures/p02/fork_ok.log
+new file mode 100644
+index 0000000..1bf245d
+--- /dev/null
++++ b/tests/fixtures/p02/fork_ok.log
+@@ -0,0 +1,18 @@
++vm.mmap_rnd_bits = 28
++rm: cannot remove '/tmp/ada_c_corpus': Device or resource busy
++/out/ada_c -- -rss_limit_mb=2560 -timeout=25 -print_final_stats=1 -max_total_time=60 -len_control=0 -timeout=30 -detect_leaks=0 -seed=1234 -ignore_crashes=1 -fork=1 /tmp/ada_c_corpus -dict=url.dict -max_len=1024 < /dev/null
++INFO: libFuzzer ignores flags that start with '--'
++Dictionary: 122 entries
++INFO: Running with entropic power schedule (0xFF, 100).
++INFO: Seed: 1234
++INFO: Loaded 1 modules   (19952 inline 8-bit counters): 19952 [0x55a8bddba628, 0x55a8bddbf418), 
++INFO: Loaded 1 PC tables (19952 PCs): 19952 [0x55a8bddbf418,0x55a8bde0d318), 
++INFO: -fork=1: fuzzing in separate process(s)
++#88618: cov: 0 ft: 0 corp: 0 exec/s: 44309 oom/timeout/crash: 0/0/0 time: 2s job: 1 dft_time: 0
++#193662: cov: 2469 ft: 5839 corp: 780 exec/s: 35014 oom/timeout/crash: 0/0/1 time: 5s job: 2 dft_time: 0
++#2010614: cov: 2914 ft: 9304 corp: 1680 exec/s: 37433 oom/timeout/crash: 0/0/8 time: 58s job: 9 dft_time: 0
++==133==ERROR: LeakSanitizer: detected memory leaks
++#2393153: cov: 2920 ft: 9457 corp: 1730 exec/s: 34776 oom/timeout/crash: 0/0/9 time: 69s job: 10 dft_time: 0
++==147==ERROR: LeakSanitizer: detected memory leaks
++INFO: fuzzed for 69 seconds, wrapping up soon
++INFO: exiting: 1 time: 69s
+diff --git a/tests/fixtures/p02/no_stats.log b/tests/fixtures/p02/no_stats.log
+new file mode 100644
+index 0000000..595e1e6
+--- /dev/null
++++ b/tests/fixtures/p02/no_stats.log
+@@ -0,0 +1,3 @@
++vm.mmap_rnd_bits = 28
++rm: cannot remove '/tmp/matio_fuzzer_corpus': Device or resource busy
++Using seed corpus: matio_fuzzer_seed_corpus.zip
+diff --git a/tests/p02_reference_driver.py b/tests/p02_reference_driver.py
+new file mode 100644
+index 0000000..99a5f27
+--- /dev/null
++++ b/tests/p02_reference_driver.py
+@@ -0,0 +1,52 @@
++"""PATCH 2 acceptance driver: run LlvmCovCollector on the llmga-covref project.
++
++Called by scripts/p02_coverage_reference.sh; needs Docker and the oss-fuzz checkout.
++"""
++import argparse
++import json
++import sys
++from pathlib import Path
++
++REPO = Path(__file__).resolve().parent.parent
++sys.path.insert(0, str(REPO))
++
++from agent_tools.fuzz_tools.llvm_cov import LlvmCovCollector  # noqa: E402
++from constants import LanguageType  # noqa: E402
++
++PROJECT = "llmga-covref"
++HARNESS_IN_IMAGE = Path(f"/src/{PROJECT}/fuzz_tinylib.c")
++
++
++def main() -> None:
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--oss-fuzz-dir", required=True)
++    ap.add_argument("--corpus", required=True)
++    ap.add_argument("--out", required=True)
++    ap.add_argument("--metric", default="branches")
++    args = ap.parse_args()
++
++    out = Path(args.out)
++    out.mkdir(parents=True, exist_ok=True)
++    collector = LlvmCovCollector(
++        oss_fuzz_dir=Path(args.oss_fuzz_dir),
++        benchmark_dir=REPO / "benchmark-sets" / "function_0",
++        project_name=PROJECT,
++        new_project_name=PROJECT,
++        project_lang=LanguageType.C,
++        raw_dir=out / "raw",
++        metric=args.metric,
++        input_timeout=25,
++        total_timeout=1800,
++    )
++    harness = (REPO / "tests" / "fixtures" / "p02" / "covref" / "fuzz_tinylib.c").read_text()
++    result = collector.collect(harness, HARNESS_IN_IMAGE, "fuzz_tinylib", Path(args.corpus))
++    (out / "result.json").write_text(json.dumps(result.to_dict(), indent=2))
++    scope = result.metrics.get("scope", {})
++    fn = scope.get("functions", {})
++    print(f"{out.name}: status={result.status.value} {result.metric}={result.covered}/{result.total} "
++          f"functions={fn.get('covered')}/{fn.get('count')} files={result.metrics.get('files_in_scope')} "
++          f"inputs={result.inputs_replayed} failed={result.inputs_failed} err={result.error_message}")
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/tests/p02_reference_expected.md b/tests/p02_reference_expected.md
+new file mode 100644
+index 0000000..94ded65
+--- /dev/null
++++ b/tests/p02_reference_expected.md
+@@ -0,0 +1,43 @@
++# PATCH 2 reference: hand-derived llvm-cov numbers for `tinylib.c`
++
++Measured unit (config `coverage_metric: branches`): llvm-cov **branch** coverage of
++source-based coverage builds (OSS-Fuzz `--sanitizer=coverage`, i.e. clang
++`-fprofile-instr-generate -fcoverage-mapping`). For every boolean condition in an
++`if`, llvm-cov counts two branches: the True outcome and the False outcome. A
++branch is covered when its outcome occurred at least once.
++
++Scope: files under `/src/llmga-covref/` (derived from the harness path
++`/src/llmga-covref/fuzz_tinylib.c`), minus the harness file itself, so only
++`/src/llmga-covref/tinylib.c` counts.
++
++`tinylib.c` has three conditions and no `&&`, `||`, `?:`, loops or `switch`:
++
++| id | condition       | reached when      |
++|----|-----------------|-------------------|
++| C1 | `size < 2`      | always            |
++| C2 | `data[0]=='A'`  | size >= 2         |
++| C3 | `data[1]=='B'`  | size >= 2, d0='A' |
++
++Total branches = 3 conditions x 2 outcomes = **6**. Functions in scope = 1 (`classify`).
++
++| input  | C1 | C2 | C3 | outcomes hit |
++|--------|----|----|----|--------------|
++| ""     | T  | -  | -  | C1T |
++| "AB"   | F  | T  | T  | C1F C2T C3T |
++| "AC"   | F  | T  | F  | C1F C2T C3F |
++| "ZZ"   | F  | F  | -  | C1F C2F |
++
++| corpus | inputs               | covered branches (union) | expected |
++|--------|----------------------|--------------------------|----------|
++| A      | "", "AB"             | C1T C1F C2T C3T          | **4 / 6**, functions 1/1 |
++| B      | "", "AB", "AC", "ZZ" | all six                  | **6 / 6**, functions 1/1 |
++| C      | "AB"                 | C1F C2T C3T              | **3 / 6**, functions 1/1 |
++
++Corpora A and B contain the empty input on purpose: if the fuzzer binary executed
++an extra empty input on its own, A and B would not change. Corpus C has no empty
++input and therefore tests the assumption that `./fuzz_tinylib <file>` executes only
++that file. A result of 4/6 for C would falsify that assumption (not the pipeline's
++counting) and must be reported, not adjusted.
++
++Determinism gate: corpus A is measured three times in fresh builds; status,
++covered, total and every scoped metric must be identical.
+diff --git a/tests/test_p02_coverage.py b/tests/test_p02_coverage.py
+new file mode 100644
+index 0000000..e30da79
+--- /dev/null
++++ b/tests/test_p02_coverage.py
+@@ -0,0 +1,160 @@
++"""PATCH 2 unit tests: structured coverage results; failures are never stored as 0.
++
++Pure-Python parts only. The Docker/llvm-cov path is checked by
++scripts/p02_coverage_reference.sh against tests/p02_reference_expected.md.
++"""
++import json
++from pathlib import Path
++
++import pytest
++
++from agent.modules.fitness import (
++    STATUS_NO_LOG, STATUS_NO_STATS, STATUS_OK, CRASH_BONUS,
++    FitnessScores, extract_coverage_from_log, prompt_value,
++)
++from agent.modules.population import Archive, HarnessGenome
++from agent_tools.fuzz_tools.coverage_result import CoverageResult, CoverageStatus
++from agent_tools.fuzz_tools.llvm_cov import library_scope_root, parse_replay_tsv, result_from_export
++from agent_tools.results_analysis import get_evaluation_results
++
++FIX = Path(__file__).parent / "fixtures" / "p02"
++HARNESS = "/src/lib/fuzz/harness.c"
++
++
++def _summary(branches, functions=(1, 1), lines=(10, 5), regions=(8, 4)):
++    def m(t):
++        return {"count": t[0], "covered": t[1], "percent": 0}
++    return {"branches": m(branches), "functions": m(functions), "lines": m(lines), "regions": m(regions)}
++
++
++def _export(files):
++    return {"type": "llvm.coverage.json.export", "version": "2.0.1",
++            "data": [{"files": [{"filename": n, "summary": s} for n, s in files],
++                      "totals": _summary((100, 10))}]}
++
++
++# ---- CoverageResult -------------------------------------------------------
++
++@pytest.mark.parametrize("status", [s for s in CoverageStatus
++                                    if s not in (CoverageStatus.OK, CoverageStatus.NO_COVERAGE)])
++def test_failure_statuses_store_null_not_zero(status):
++    r = CoverageResult(status, "branches", covered=0, total=123, error_message="x")
++    d = r.to_dict()
++    assert d["covered"] is None and d["total"] is None and d["percent"] is None
++    assert d["status"] == status.value
++
++
++def test_measured_status_requires_numbers():
++    with pytest.raises(ValueError):
++        CoverageResult(CoverageStatus.OK, "branches")
++    r = CoverageResult(CoverageStatus.NO_COVERAGE, "branches", covered=0, total=6)
++    assert r.to_dict()["covered"] == 0 and r.percent == 0.0
++
++
++# ---- scope + export parsing -----------------------------------------------
++
++def test_library_scope_root():
++    assert library_scope_root("/src/cjson/fuzzing/cjson_read_fuzzer.c", "cjson") == "/src/cjson/"
++    assert library_scope_root("/src/ada-url/fuzz/parse.cc", "ada-url") == "/src/ada-url/"
++    assert library_scope_root("/src/harness.c", "matio") == "/src/matio/"
++
++
++def test_export_scoped_sum_excludes_harness_and_other_trees():
++    exp = _export([
++        ("/src/lib/a.c", _summary((6, 4))),
++        ("/src/lib/b.c", _summary((4, 1))),
++        (HARNESS, _summary((50, 50))),            # harness: excluded
++        ("/src/zlib/inflate.c", _summary((90, 90))),  # dependency: outside scope
++    ])
++    r = result_from_export(exp, "/src/lib/", {HARNESS}, "branches")
++    assert r.status == CoverageStatus.OK
++    assert (r.covered, r.total) == (5, 10)
++    assert r.metrics["files_in_scope"] == ["/src/lib/a.c", "/src/lib/b.c"]
++    assert r.metrics["scope"]["functions"] == {"covered": 2, "count": 2}
++    assert r.metrics["whole_binary"]["branches"] == {"covered": 10, "count": 100}
++
++
++def test_export_zero_covered_is_no_coverage_with_real_zero():
++    r = result_from_export(_export([("/src/lib/a.c", _summary((6, 0)))]), "/src/lib/", set(), "branches")
++    assert r.status == CoverageStatus.NO_COVERAGE and (r.covered, r.total) == (0, 6)
++
++
++@pytest.mark.parametrize("export, why", [
++    (_export([("/src/other/a.c", _summary((6, 3)))]), "no source files"),
++    ({"data": [{"files": [{"filename": "/src/lib/a.c"}]}]}, "malformed"),
++    ({"nothing": 1}, "malformed"),
++    (_export([("/src/lib/a.c", {"lines": {"count": 3, "covered": 1}})]), "not present"),
++    (_export([("/src/lib/a.c", _summary((0, 0)))]), "zero instrumented"),
++])
++def test_export_problems_are_parse_failed(export, why):
++    r = result_from_export(export, "/src/lib/", set(), "branches")
++    assert r.status == CoverageStatus.PARSE_FAILED
++    assert r.covered is None and r.total is None
++    assert why in r.error_message
++
++
++def test_parse_replay_tsv(tmp_path):
++    f = tmp_path / "replay.tsv"
++    f.write_text("a\t0\nb\t1\nc\t137\n\n")
++    assert parse_replay_tsv(f) == (3, 2)
++
++
++# ---- evolution-loop fitness (path A) --------------------------------------
++
++def test_fork_mode_log_is_measured():
++    s = extract_coverage_from_log(FIX / "fork_ok.log")
++    assert s.status == STATUS_OK
++    assert (s.coverage, s.features, s.exec_per_sec) == (2920, 9457, 34776.0)
++
++
++def test_log_without_stats_records_none_not_zero():
++    s = extract_coverage_from_log(FIX / "no_stats.log")
++    assert s.status == STATUS_NO_STATS
++    assert s.coverage is None and s.features is None and s.exec_per_sec is None
++    s.compile_ok = True
++    assert s.total() == 0.0
++    s.crash_found = True
++    assert s.total() == CRASH_BONUS
++
++
++def test_missing_and_empty_log_are_no_log(tmp_path):
++    assert extract_coverage_from_log(tmp_path / "missing.log").status == STATUS_NO_LOG
++    empty = tmp_path / "empty.log"
++    empty.write_text("   \n")
++    s = extract_coverage_from_log(empty)
++    assert s.status == STATUS_NO_LOG and s.coverage is None
++
++
++def test_prompt_rendering_unchanged_for_missing_stats():
++    assert prompt_value(None) == "0"
++    assert prompt_value(2920) == "2920"
++
++
++def test_genome_record_and_archive_stats_keep_null():
++    g = HarnessGenome.make("int x;", 0, [], "INITIAL")
++    g.compile_ok = True
++    g.fitness = FitnessScores(compile_ok=True, status=STATUS_NO_STATS)
++    d = json.loads(json.dumps(g.to_dict()))
++    assert d["fitness"]["coverage"] is None and d["fitness"]["status"] == STATUS_NO_STATS
++    a = Archive(capacity=4)
++    a.add(g)
++    assert a.coverage_stats() == {"max": None, "mean": None, "min": None}
++    assert "cov_mean=None" in repr(a)
++
++
++# ---- evaluation_results.json reader ---------------------------------------
++
++def test_get_evaluation_results_counts_statuses(tmp_path):
++    ok = CoverageResult(CoverageStatus.OK, "branches", covered=4, total=6).to_dict()
++    bad = CoverageResult(CoverageStatus.BUILD_FAILED, "branches", error_message="x").to_dict()
++    (tmp_path / "evaluation_results.json").write_text(json.dumps({
++        "p+f1": {"coverage": ok, "fuzz_result": "NoError"},
++        "p+f2": {"coverage": bad, "fuzz_result": "NOT_RUN"},
++    }))
++    assert get_evaluation_results(tmp_path) == {"OK": 1, "BUILD_FAILED": 1}
++
++
++def test_get_evaluation_results_rejects_legacy_format(tmp_path):
++    (tmp_path / "evaluation_results.json").write_text(json.dumps({"p+f": [0, 0, 0, 0.0, 0.0]}))
++    with pytest.raises(ValueError, match="legacy"):
++        get_evaluation_results(tmp_path)
+diff --git a/tools/prepare_evo_for_eval.py b/tools/prepare_evo_for_eval.py
+index 1eb53fb..822d953 100644
+--- a/tools/prepare_evo_for_eval.py
++++ b/tools/prepare_evo_for_eval.py
+@@ -14,13 +14,14 @@ Usage:
+         --evo_save_root outputs/evo_gpac \
+         --out_dir       outputs/evo_eval_ready
+ 
+-Then run eval:
++Then run eval (writes outputs/evo_eval_ready/evaluation_results.json, one
++llvm-cov CoverageResult per target):
+     python -m agent.eval \
+         --benchcfg_path cfg/evo/evo_eval.yaml \
+         --output_path   outputs/evo_eval_ready \
+         --n_run 1
+ 
+-Then get results:
++Then summarise results:
+     python -c "
+     from agent_tools.results_analysis import get_evaluation_results
+     from pathlib import Path
+diff --git a/utils/clean.py b/utils/clean.py
+index f9c84c6..b98a2c6 100644
+--- a/utils/clean.py
++++ b/utils/clean.py
+@@ -132,7 +132,7 @@ def remove_evaluation(eval_path: Path):
+                 if not work_path.name.startswith("run"):
+                     print(f"wrong path evaluation dir: {work_path}")
+                     continue
+-                if not (work_path / "cov.txt").exists():
++                if not (work_path / "coverage.json").exists():
+                     shutil.rmtree(work_path)
+                     print(f"Removed evaluation dir: {work_path}")
+                     count += 1
+@@ -217,8 +217,10 @@ def filter_eval_projects(save_path: Path, eval_path: Path, threshold: int = 50):
+     with open(eval_file, 'r') as f:
+         eval_data = json.load(f)
+         for key, val in eval_data.items():
+-            init_cov, final_cov = val[0], val[1]
+-            if final_cov - init_cov >= threshold:
++            # llvm-cov records have no "initial coverage"; keep measured results whose
++            # covered count reaches the threshold (failures are never treated as 0).
++            cov = val["coverage"]
++            if cov["status"] in ("OK", "NO_COVERAGE") and cov["covered"] >= threshold:
+                 keep_keys.append(key)
+ 
+     filtered_data: dict[str, Any] = {}

@@ -175,70 +175,39 @@ def run_agent_res(output_path: Path, semantic_mode:str, n_run:int=1, language: L
             json.dump(success_json, f, indent=4)
 
 
-def get_evaluation_results(eval_path: Path) -> tuple[float, float, float, float]:
+def get_evaluation_results(eval_path: Path) -> dict[str, int]:
+    """Summarise evaluation_results*.json written by agent.eval.run_evaluation.
 
-    eval_res: dict[str, tuple[int, int]] = {}
-    run_path_list = get_run_path(eval_path, n_run=1)
-    print(f"Found {len(run_path_list)} run1 directories.")
-    for run_dir in sorted(run_path_list):
-        cov_file = run_dir / "cov.txt"
-        function_file = run_dir / "function.txt"
-        if not function_file.exists():
-            print(f"Function signature file not found: {function_file}")
-            continue
-        function_sig = function_file.read_text().strip()
+    Counts records per coverage status; statistics use measured results only
+    (status OK / NO_COVERAGE). Failures are counted, never averaged in as 0.
+    """
+    files = sorted(eval_path.glob("evaluation_results*.json"))
+    if not files:
+        raise FileNotFoundError(f"no evaluation_results*.json in {eval_path}")
 
-        key = "{}+{}".format(run_dir.parent.parent.name, function_sig)
-        if not cov_file.exists():
-            print(f"Coverage file not found: {cov_file}")
-            eval_res[key] = (0, 0, 0, 0.0, 0.0)
-            continue
+    records: dict[str, Any] = {}
+    for res_file in files:
+        data = json.loads(res_file.read_text())
+        for key, rec in data.items():
+            if not isinstance(rec, dict) or "coverage" not in rec:
+                raise ValueError(f"{res_file}: legacy entry for {key!r} (pre-llvm-cov format); re-run agent.eval")
+            records[key] = rec
 
-        # check whether the fuzz crashed (note: crash does NOT prevent coverage
-        # collection when ignore_crashes=true; we still read cov.txt)
-        log_file = run_dir / "agent.log"
-        had_crash = log_file.exists() and "ValResult.Crash" in log_file.read_text()
+    status_counts: dict[str, int] = defaultdict(int)
+    for rec in records.values():
+        status_counts[rec["coverage"]["status"]] += 1
+    measured = [rec["coverage"] for rec in records.values() if rec["coverage"]["status"] in ("OK", "NO_COVERAGE")]
 
-        cov_lines = cov_file.read_text().split("\n")
-        try:
-            init_cov  = int(cov_lines[0].split(":")[-1].strip())
-            final_cov = int(cov_lines[1].split(":")[-1].strip())
-        except (ValueError, IndexError):
-            init_cov, final_cov = 0, 0
-        total_edges    = int(cov_lines[2].split(":")[-1].strip())   if len(cov_lines) > 2 and cov_lines[2].startswith("Total edges")    else 0
-        edge_pct       = float(cov_lines[3].split(":")[-1].strip()) if len(cov_lines) > 3 and cov_lines[3].startswith("Edge coverage")  else 0.0
-        improvement_pct= float(cov_lines[4].split(":")[-1].strip()) if len(cov_lines) > 4 and cov_lines[4].startswith("Improvement")    else 0.0
-
-        # If the fuzzer crashed AND there was no coverage, mark as crash (-1,-1).
-        # If there WAS coverage despite the crash, keep the coverage data.
-        if had_crash and init_cov == 0:
-            eval_res[key] = (-1, -1, 0, 0.0, 0.0)
-        else:
-            eval_res[key] = (init_cov, final_cov, total_edges, edge_pct, improvement_pct)
-
-    # do some statistics
-    crash_count     = sum(1 for _, v in eval_res.items() if v[0] == -1 and v[1] == -1)
-    zero_init_count = sum(1 for _, v in eval_res.items() if v[0] == 0  and v[1] == 0)
-    no_improve_count= sum(1 for _, v in eval_res.items() if v[0] == v[1] and v[0] > 0)
-    improved_count  = sum(1 for _, v in eval_res.items() if v[1] > v[0])
-
-    valid = [v for v in eval_res.values() if v[0] > 0 and v[2] > 0]
-    avg_edge_pct      = round(sum(v[3] for v in valid) / len(valid), 2) if valid else 0.0
-    avg_improvement   = round(sum(v[4] for v in valid) / len(valid), 2) if valid else 0.0
-
-    print(f"Total evaluated functions: {len(eval_res)}")
-    print(f"Functions with crashes during evaluation: {crash_count / len(eval_res) * 100:.2f}% ({crash_count})")
-    print(f"Functions with not reached: {zero_init_count / len(eval_res) * 100:.2f}% ({zero_init_count})")
-    print(f"Functions with no improvement in coverage: {no_improve_count / len(eval_res) * 100:.2f}% ({no_improve_count})")
-    print(f"Functions with improved coverage: {improved_count / len(eval_res) * 100:.2f}% ({improved_count})")
-    print(f"Avg edge coverage % (of total binary edges): {avg_edge_pct:.2f}%")
-    print(f"Avg relative improvement (Gen0 → final): {avg_improvement:.2f}%")
-
-    # save to file
-    with open(eval_path / "evaluation_results.json", "w") as f:
-        json.dump(eval_res, f, indent=4)
-
-    return round(crash_count*100 / len(eval_res), 2), round(zero_init_count*100 / len(eval_res), 2), round(no_improve_count*100 / len(eval_res), 2), round(improved_count*100 / len(eval_res), 2)
+    print(f"Total evaluated functions: {len(records)}")
+    for status, count in sorted(status_counts.items()):
+        print(f"  {status}: {count}")
+    if measured:
+        metric = measured[0]["metric"]
+        mean_pct = sum(c["percent"] for c in measured) / len(measured)
+        print(f"Mean {metric} coverage over {len(measured)} measured functions: {mean_pct:.2f}%")
+    crashed = sum(1 for rec in records.values() if rec.get("fuzz_result") == "Crash")
+    print(f"Fuzzing runs that reported a crash: {crashed}")
+    return dict(status_counts)
 
 if __name__ == "__main__":
 

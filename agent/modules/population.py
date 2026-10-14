@@ -95,6 +95,8 @@ class HarnessGenome:
             "compile_error": self.compile_error,
             "fuzz_log_path": self.fuzz_log_path,
             "fitness": {
+                "status":        self.fitness.status,
+                "error_message": self.fitness.error_message,
                 "coverage":     self.fitness.coverage,
                 "features":     self.fitness.features,
                 "exec_per_sec": self.fitness.exec_per_sec,
@@ -235,10 +237,10 @@ class Archive:
         return len(self._genomes)
 
     def coverage_stats(self) -> dict:
-        valid = self.all_valid()
-        if not valid:
-            return {"max": 0, "mean": 0.0, "min": 0}
-        covs = [g.fitness.coverage for g in valid]
+        # only genomes with measured statistics; failed trials are not counted as 0
+        covs = [g.fitness.coverage for g in self.all_valid() if g.fitness.coverage is not None]
+        if not covs:
+            return {"max": None, "mean": None, "min": None}
         return {
             "max":  max(covs),
             "mean": sum(covs) / len(covs),
@@ -247,7 +249,8 @@ class Archive:
 
     def __repr__(self) -> str:
         stats = self.coverage_stats()
+        mean = "None" if stats["mean"] is None else f"{stats['mean']:.1f}"
         return (
             f"Archive(size={len(self._genomes)}/{self.capacity}, "
-            f"cov_max={stats['max']}, cov_mean={stats['mean']:.1f})"
+            f"cov_max={stats['max']}, cov_mean={mean})"
         )

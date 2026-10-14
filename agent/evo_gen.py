@@ -19,7 +19,10 @@ from utils.misc import extract_name
 from agent.gen import ISSTAFuzzer
 from agent.modules.fuzzenv import FuzzENV
 from agent.modules.compilation import CompilerWraper
-from agent.modules.fitness import FitnessScores, extract_coverage_from_log
+from agent.modules.fitness import (
+    FitnessScores, extract_coverage_from_log, prompt_value,
+    STATUS_COMPILE_FAILED, STATUS_EVAL_ERROR, STATUS_EVAL_SKIPPED,
+)
 from agent.modules.population import (
     Archive, HarnessGenome,
     OP_CROSSOVER, OP_INITIAL, OP_CACHED, OP_MUTATION, OP_REPAIR,
@@ -340,6 +343,8 @@ class EvoISSTAFuzzer:
             env = self._get_eval_env()
             if env.early_exit_flag:
                 self.logger.warning("Eval env early-exit; skipping evaluation.")
+                genome.fitness = FitnessScores(status=STATUS_EVAL_SKIPPED,
+                                               error_message="evaluation environment early exit")
                 return genome
 
             compiler = env.make_compiler()
@@ -363,7 +368,7 @@ class EvoISSTAFuzzer:
             if compile_msg != CompileResults.Success.value:
                 genome.compile_ok    = False
                 genome.compile_error = result.get("build_msg", compile_msg)
-                genome.fitness       = FitnessScores(compile_ok=False)
+                genome.fitness       = FitnessScores(compile_ok=False, status=STATUS_COMPILE_FAILED)
                 self.logger.info(
                     f"  COMPILE FAILED — {compile_msg[:80]}"
                 )
@@ -394,9 +399,10 @@ class EvoISSTAFuzzer:
             genome.fitness       = fitness
             genome.fuzz_log_path = str(log_path)
 
+            exec_s = "None" if fitness.exec_per_sec is None else f"{fitness.exec_per_sec:.0f}"
             self.logger.info(
-                f"  {genome.genome_id}: cov={fitness.coverage}, "
-                f"ft={fitness.features}, exec/s={fitness.exec_per_sec:.0f}, "
+                f"  {genome.genome_id}: status={fitness.status}, cov={fitness.coverage}, "
+                f"ft={fitness.features}, exec/s={exec_s}, "
                 f"crash={fitness.crash_found}, "
                 f"total_fitness={fitness.total():.4f}"
             )
@@ -406,6 +412,8 @@ class EvoISSTAFuzzer:
                 f"Evaluation error for {genome.genome_id}: {exc}"
             )
             traceback.print_exc()
+            genome.fitness = FitnessScores(status=STATUS_EVAL_ERROR,
+                                           error_message=f"{type(exc).__name__}: {exc}")
 
         return genome
 
@@ -443,19 +451,27 @@ class EvoISSTAFuzzer:
                 )
 
         archive_best = self.archive.best(1)
+        # statistics over measured trials only; None when no trial produced statistics
+        covs = [g.fitness.coverage for g in population if g.fitness.coverage is not None]
+        fts  = [g.fitness.features for g in population if g.fitness.features is not None]
+        status_counts: dict = {}
+        for g in population:
+            status_counts[g.fitness.status] = status_counts.get(g.fitness.status, 0) + 1
         stats: dict = {
             "generation":          generation,
             "population_size":     len(population),
             "n_compiled":          sum(1 for g in population if g.compile_ok),
-            "max_coverage":        max((g.fitness.coverage for g in population), default=0),
-            "max_features":        max((g.fitness.features for g in population), default=0),
+            "n_with_stats":        len(covs),
+            "fitness_status_counts": status_counts,
+            "max_coverage":        max(covs, default=None),
+            "max_features":        max(fts, default=None),
             "avg_fitness":         (
                 sum(g.total_fitness() for g in population) / len(population)
                 if population else 0.0
             ),
             "crash_found":         any(g.fitness.crash_found for g in population),
             "archive_size":        len(self.archive),
-            "archive_best_cov":    archive_best[0].fitness.coverage if archive_best else 0,
+            "archive_best_cov":    archive_best[0].fitness.coverage if archive_best else None,
             "archive_best_fitness": archive_best[0].total_fitness() if archive_best else 0.0,
         }
         self.generation_stats.append(stats)
@@ -562,8 +578,8 @@ class EvoISSTAFuzzer:
                         strategy = random.choice(MUTATION_STRATEGIES)
                         cov_fb   = (
                             f"Parent {parent.genome_id} achieved "
-                            f"{parent.fitness.coverage} edges and "
-                            f"{parent.fitness.features} features. "
+                            f"{prompt_value(parent.fitness.coverage)} edges and "
+                            f"{prompt_value(parent.fitness.features)} features. "
                             "Try to reach code paths it does not."
                         )
                         code   = self.mutation_op.mutate(
@@ -635,8 +651,8 @@ class EvoISSTAFuzzer:
             "project":             self.project_name,
             "total_generations":   len(self.generation_stats),
             "archive_size":        len(self.archive),
-            "best_coverage":       best[0].fitness.coverage  if best else 0,
-            "best_features":       best[0].fitness.features  if best else 0,
+            "best_coverage":       best[0].fitness.coverage  if best else None,
+            "best_features":       best[0].fitness.features  if best else None,
             "best_fitness":        best[0].total_fitness()   if best else 0.0,
             "crash_found":         any(
                 g.fitness.crash_found for g in self.archive.all_valid()

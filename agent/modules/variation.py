@@ -8,6 +8,7 @@ from typing import Optional
 from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
+from agent.modules.fitness import prompt_value
 from agent.modules.population import HarnessGenome
 from constants import PROJECT_PATH, LanguageType
 
@@ -161,8 +162,8 @@ class MutationOperator:
             MUTATION_STRATEGY   = strategy,
             API_CONTEXT         = api_context or "(none)",
             COVERAGE_FEEDBACK   = coverage_feedback or "(none)",
-            PARENT_COVERAGE     = str(parent.fitness.coverage),
-            PARENT_FEATURES     = str(parent.fitness.features),
+            PARENT_COVERAGE     = prompt_value(parent.fitness.coverage),
+            PARENT_FEATURES     = prompt_value(parent.fitness.features),
             LANGUAGE_NOTE       = _build_language_note(project_lang),
         )
 
@@ -219,10 +220,10 @@ class CrossoverOperator:
             FUNCTION_SIGNATURE   = function_signature,
             PARENT1_CODE         = parent1.code,
             PARENT2_CODE         = parent2.code,
-            PARENT1_COVERAGE     = str(parent1.fitness.coverage),
-            PARENT2_COVERAGE     = str(parent2.fitness.coverage),
-            PARENT1_FEATURES     = str(parent1.fitness.features),
-            PARENT2_FEATURES     = str(parent2.fitness.features),
+            PARENT1_COVERAGE     = prompt_value(parent1.fitness.coverage),
+            PARENT2_COVERAGE     = prompt_value(parent2.fitness.coverage),
+            PARENT1_FEATURES     = prompt_value(parent1.fitness.features),
+            PARENT2_FEATURES     = prompt_value(parent2.fitness.features),
             API_CONTEXT          = api_context or "(none)",
             LANGUAGE_NOTE        = _build_language_note(project_lang),
         )

@@ -89,7 +89,7 @@ def _run_one(
             "function":  function_signature,
             "elapsed_s": round(elapsed, 1),
             "n_best":    len(best),
-            "best_coverage": best[0].fitness.coverage if best else 0,
+            "best_coverage": best[0].fitness.coverage if best else None,
             "crash_found":   any(g.fitness.crash_found for g in best),
         }
         print(

@@ -14,13 +14,14 @@ Usage:
         --evo_save_root outputs/evo_gpac \
         --out_dir       outputs/evo_eval_ready
 
-Then run eval:
+Then run eval (writes outputs/evo_eval_ready/evaluation_results.json, one
+llvm-cov CoverageResult per target):
     python -m agent.eval \
         --benchcfg_path cfg/evo/evo_eval.yaml \
         --output_path   outputs/evo_eval_ready \
         --n_run 1
 
-Then get results:
+Then summarise results:
     python -c "
     from agent_tools.results_analysis import get_evaluation_results
     from pathlib import Path

@@ -109,6 +109,9 @@ if __name__ == "__main__":
             data = json.load(f)
         print("\n--- Coverage% from evo_results.json ---")
         for key, val in data.items():
-            best_cov = val.get("best_coverage", 0)
+            best_cov = val.get("best_coverage")
+            if best_cov is None:
+                print(f"  {val['function'][:60]}: no measured coverage")
+                continue
             pct = compute_coverage_percent(best_cov, total)
             print(f"  {val['function'][:60]}: {best_cov} edges = {pct:.2f}%")

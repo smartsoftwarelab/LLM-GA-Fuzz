@@ -101,6 +101,13 @@ class BenchConfig:
         self.no_log = self.config.get('no_log', False)
         self.ignore_crashes = self.config.get('ignore_crashes', False)
 
+        # for reported coverage (llvm-cov on the final corpus, agent/eval.py)
+        self.coverage_metric = self.config.get('coverage_metric', "branches")
+        if self.coverage_metric not in ("branches", "regions", "lines", "functions"):
+            sys.exit(f"ERROR: coverage_metric must be branches|regions|lines|functions, got {self.coverage_metric!r}")
+        self.coverage_input_timeout = self.config.get('coverage_input_timeout', 25)    # seconds per replayed input
+        self.coverage_total_timeout = self.config.get('coverage_total_timeout', 3600)  # seconds for the whole replay
+
         # for extracting all functions from project (skip generation)
         self.extract_all_functions = self.config.get('extract_all_functions', False)
 

@@ -1,0 +1,18 @@
+vm.mmap_rnd_bits = 28
+rm: cannot remove '/tmp/ada_c_corpus': Device or resource busy
+/out/ada_c -- -rss_limit_mb=2560 -timeout=25 -print_final_stats=1 -max_total_time=60 -len_control=0 -timeout=30 -detect_leaks=0 -seed=1234 -ignore_crashes=1 -fork=1 /tmp/ada_c_corpus -dict=url.dict -max_len=1024 < /dev/null
+INFO: libFuzzer ignores flags that start with '--'
+Dictionary: 122 entries
+INFO: Running with entropic power schedule (0xFF, 100).
+INFO: Seed: 1234
+INFO: Loaded 1 modules   (19952 inline 8-bit counters): 19952 [0x55a8bddba628, 0x55a8bddbf418), 
+INFO: Loaded 1 PC tables (19952 PCs): 19952 [0x55a8bddbf418,0x55a8bde0d318), 
+INFO: -fork=1: fuzzing in separate process(s)
+#88618: cov: 0 ft: 0 corp: 0 exec/s: 44309 oom/timeout/crash: 0/0/0 time: 2s job: 1 dft_time: 0
+#193662: cov: 2469 ft: 5839 corp: 780 exec/s: 35014 oom/timeout/crash: 0/0/1 time: 5s job: 2 dft_time: 0
+#2010614: cov: 2914 ft: 9304 corp: 1680 exec/s: 37433 oom/timeout/crash: 0/0/8 time: 58s job: 9 dft_time: 0
+==133==ERROR: LeakSanitizer: detected memory leaks
+#2393153: cov: 2920 ft: 9457 corp: 1730 exec/s: 34776 oom/timeout/crash: 0/0/9 time: 69s job: 10 dft_time: 0
+==147==ERROR: LeakSanitizer: detected memory leaks
+INFO: fuzzed for 69 seconds, wrapping up soon
+INFO: exiting: 1 time: 69s

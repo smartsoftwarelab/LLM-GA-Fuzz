@@ -79,8 +79,8 @@ jq_max() {
     python3 -c "
 import json
 data = json.load(open('$file'))
-vals = [g.get('$key', 0) for g in data]
-print(max(vals))
+vals = [g.get('$key') for g in data if g.get('$key') is not None]
+print(max(vals) if vals else 'N/A')
 "
 }
 
@@ -113,6 +113,9 @@ CAMPAIGNS["gpac"]="evo_gpac|gpac|visual_2d_draw_frame|visual_2d_draw_frame visua
 {
 echo "# LLM+GA Fuzzing Campaign — Full Analysis Report"
 echo "**Generated:** $(date)"
+echo ""
+echo "> Coverage columns are the in-loop libFuzzer \`cov:\` fitness signal (whole binary), not the reported"
+echo "> llvm-cov metric (agent/eval.py -> evaluation_results.json). Missing values (None) mean no statistics were measured."
 echo ""
 echo "---"
 echo ""
@@ -228,7 +231,7 @@ print(f'{'Gen':>4}  {'Compiled':>8}  {'MaxCov':>7}  {'ArchCov':>7}  {'AvgFit':>8
 print('-' * 55)
 for g in data:
     crash_marker = '<<' if g.get('crash_found') else ''
-    print(f'{g[\"generation\"]:>4}  {g[\"n_compiled\"]:>8}  {g[\"max_coverage\"]:>7}  {g[\"archive_best_cov\"]:>7}  {g[\"avg_fitness\"]:>8.4f}  {str(g[\"crash_found\"]):>6} {crash_marker}')
+    print(f'{g[\"generation\"]:>4}  {g[\"n_compiled\"]:>8}  {str(g[\"max_coverage\"]):>7}  {str(g[\"archive_best_cov\"]):>7}  {g[\"avg_fitness\"]:>8.4f}  {str(g[\"crash_found\"]):>6} {crash_marker}')
 "
     echo "\`\`\`"
     } >> "$REPORT_FILE"
@@ -267,9 +270,9 @@ for name, d in campaigns.items():
     data = json.load(open(files[0]))
     if not data:
         continue
-    g0  = data[0].get("archive_best_cov", 0) or data[0].get("max_coverage", 0)
-    gf  = data[-1].get("archive_best_cov", 0)
-    imp = f"+{(gf-g0)/g0*100:.0f}%" if g0 > 0 else "N/A"
+    g0  = data[0].get("archive_best_cov") or data[0].get("max_coverage")
+    gf  = data[-1].get("archive_best_cov")
+    imp = f"+{(gf-g0)/g0*100:.0f}%" if g0 and gf is not None else "N/A"
     print(f"| {name} | {g0} | {gf} | {imp} |")
 PYEOF
 } >> "$REPORT_FILE"

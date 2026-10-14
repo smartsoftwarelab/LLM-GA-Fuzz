@@ -12,7 +12,8 @@ import random
 
 class Compiler():
 
-    def __init__(self, oss_fuzz_dir: Path, benchmark_dir: Path, project_name: str, new_project_name: str, include_path: Optional[set[str]]=None):
+    def __init__(self, oss_fuzz_dir: Path, benchmark_dir: Path, project_name: str, new_project_name: str, include_path: Optional[set[str]]=None,
+                 sanitizer: Optional[str]=None):
 
         self.oss_fuzz_dir = oss_fuzz_dir
         self.project_name = project_name
@@ -23,6 +24,9 @@ class Compiler():
         self.docker_tool = DockerUtils(oss_fuzz_dir, project_name, new_project_name, self.project_lang)
 
         self.build_harness_cmd = self.oss_tool.get_script_cmd("build_fuzzers")
+        if sanitizer:
+            # helper.py build_fuzzers --clean --sanitizer=<sanitizer> <project>
+            self.build_harness_cmd = self.build_harness_cmd[:-1] + [f"--sanitizer={sanitizer}", self.build_harness_cmd[-1]]
 
         # self.build_harness_cmd = ["python", os.path.join(self.oss_fuzz_dir, "infra", "helper.py"),
                             # "build_fuzzers", "--clean", self.new_project_name,  "--", "-fsanitize=fuzzer", "-fsanitize=address", "-fsanitize-coverage=trace-pc-guard"]

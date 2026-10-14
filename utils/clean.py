@@ -132,7 +132,7 @@ def remove_evaluation(eval_path: Path):
                 if not work_path.name.startswith("run"):
                     print(f"wrong path evaluation dir: {work_path}")
                     continue
-                if not (work_path / "cov.txt").exists():
+                if not (work_path / "coverage.json").exists():
                     shutil.rmtree(work_path)
                     print(f"Removed evaluation dir: {work_path}")
                     count += 1
@@ -217,8 +217,10 @@ def filter_eval_projects(save_path: Path, eval_path: Path, threshold: int = 50):
     with open(eval_file, 'r') as f:
         eval_data = json.load(f)
         for key, val in eval_data.items():
-            init_cov, final_cov = val[0], val[1]
-            if final_cov - init_cov >= threshold:
+            # llvm-cov records have no "initial coverage"; keep measured results whose
+            # covered count reaches the threshold (failures are never treated as 0).
+            cov = val["coverage"]
+            if cov["status"] in ("OK", "NO_COVERAGE") and cov["covered"] >= threshold:
                 keep_keys.append(key)
 
     filtered_data: dict[str, Any] = {}
