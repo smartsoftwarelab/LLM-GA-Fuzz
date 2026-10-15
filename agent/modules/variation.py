@@ -9,6 +9,7 @@ from langchain_core.language_models import BaseChatModel
 from langchain_core.messages import HumanMessage
 
 from agent.modules.fitness import prompt_value
+from utils.llm_usage import usage_scope
 from agent.modules.population import HarnessGenome
 from constants import PROJECT_PATH, LanguageType
 
@@ -173,7 +174,8 @@ class MutationOperator:
         )
 
         try:
-            response = self.llm.invoke([HumanMessage(content=prompt)])
+            with usage_scope(call_type="mutation"):
+                response = self.llm.invoke([HumanMessage(content=prompt)])
             mutated  = _extract_cpp_code(response.content)
             self.logger.info(
                 f"[Mutation] success — output length: {len(mutated)} chars"
@@ -234,7 +236,8 @@ class CrossoverOperator:
         )
 
         try:
-            response  = self.llm.invoke([HumanMessage(content=prompt)])
+            with usage_scope(call_type="crossover"):
+                response  = self.llm.invoke([HumanMessage(content=prompt)])
             offspring = _extract_cpp_code(response.content)
             self.logger.info(
                 f"[Crossover] success — output length: {len(offspring)} chars"

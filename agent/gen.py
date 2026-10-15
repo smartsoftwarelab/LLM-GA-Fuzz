@@ -31,7 +31,7 @@ from langgraph.checkpoint.memory import MemorySaver
 from ossfuzz_gen import benchmark as benchmarklib
 from ossfuzz_gen.context_introspector import ContextRetriever
 from typing import Annotated
-from langchain_openai import ChatOpenAI
+from utils.llm_usage import LoggedChatOpenAI
 from langchain_core.language_models import BaseChatModel
 from typing_extensions import TypedDict
 from langgraph.graph.message import add_messages # type: ignore
@@ -305,7 +305,8 @@ class ISSTAFuzzer(FuzzENV):
 
         if self.benchcfg.example_mode == "rank":
             self.logger.info("Using rank mode for example selection")
-            code_usages = cache_example_selection(example_json_file, function_name, self.project_name, self.benchcfg.model_name)
+            code_usages = cache_example_selection(example_json_file, function_name, self.project_name, self.benchcfg.model_name,
+                                                  self.benchcfg.llm_max_retries)
         
         filter_code_usage = self.filter_examples(code_usages) # type: ignore
 
@@ -428,7 +429,7 @@ class ISSTAFuzzer(FuzzENV):
     def load_model(self) -> BaseChatModel:
 
         if self.benchcfg.model_name == "CoreStableLLM":
-            llm = ChatOpenAI(
+            llm = LoggedChatOpenAI(usage_max_retries=self.benchcfg.llm_max_retries,
                 api_key=self.benchcfg.llm_api_key,  # type: ignore
                 base_url=self.benchcfg.base_url,
                 model="CoreStableLLM",
@@ -436,18 +437,18 @@ class ISSTAFuzzer(FuzzENV):
             )
         elif self.benchcfg.model_name.startswith("gpt"):
             if "gpt-5-mini" in self.benchcfg.model_name:
-                llm = ChatOpenAI(
+                llm = LoggedChatOpenAI(usage_max_retries=self.benchcfg.llm_max_retries,
                     api_key=self.benchcfg.llm_api_key,  # type: ignore
                     model=self.benchcfg.model_name,
                 )
             else:
-                llm = ChatOpenAI(
+                llm = LoggedChatOpenAI(usage_max_retries=self.benchcfg.llm_max_retries,
                     api_key=self.benchcfg.llm_api_key,  # type: ignore
                     model=self.benchcfg.model_name,
                     temperature=self.benchcfg.temperature,
                 )
         elif self.benchcfg.model_name.startswith("anthropic"):
-            llm = ChatOpenAI(
+            llm = LoggedChatOpenAI(usage_max_retries=self.benchcfg.llm_max_retries,
                 api_key=os.getenv("OPENROUTER_API_KEY", ""), # type: ignore
                 base_url="https://openrouter.ai/api/v1",
                 model=self.benchcfg.model_name,
@@ -461,7 +462,7 @@ class ISSTAFuzzer(FuzzENV):
                 }
             )
         else:
-            llm = ChatOpenAI(
+            llm = LoggedChatOpenAI(usage_max_retries=self.benchcfg.llm_max_retries,
                 api_key=os.getenv("OPENROUTER_API_KEY", ""), # type: ignore
                 base_url="https://openrouter.ai/api/v1",
                 model=self.benchcfg.model_name,
@@ -541,7 +542,8 @@ class ISSTAFuzzer(FuzzENV):
         )
         if self.benchcfg.base_url:         # Only send if base_url is not empty
             _extract_kwargs["base_url"] = self.benchcfg.base_url
-        llm_extract = ChatOpenAI(**_extract_kwargs)  # type: ignore
+        llm_extract = LoggedChatOpenAI(usage_call_type="code_extract", usage_max_retries=self.benchcfg.llm_max_retries,
+                                       **_extract_kwargs)  # type: ignore
         llm = self.load_model()
 
         # code formatter

@@ -7,6 +7,8 @@ from pathlib import Path
 from typing import Any
 import threading
 
+LIBFUZZER_SEED = 1234  # -seed passed to every libFuzzer run (recorded in run_manifest.json)
+
 def kill_process(process: Any):
     try:
         if process and process.poll() is None:
@@ -80,7 +82,7 @@ class FuzzerRunner():
                         # Timeout per testcase.
                     '-timeout=30',
                     '-detect_leaks=0',
-                    '-seed=1234',
+                    f'-seed={LIBFUZZER_SEED}',
                    
             ]
         if ignore_crashes:

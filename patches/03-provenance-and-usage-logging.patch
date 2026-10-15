@@ -1,0 +1,1335 @@
+diff --git a/agent/evo_gen.py b/agent/evo_gen.py
+index 066c47d..beb639d 100644
+--- a/agent/evo_gen.py
++++ b/agent/evo_gen.py
+@@ -6,19 +6,22 @@ import os
+ import random
+ import shutil
+ import traceback
++import uuid
+ from pathlib import Path
+ from typing import Optional
+ 
+-from langchain_openai import ChatOpenAI
+ from langchain_core.language_models import BaseChatModel
+ 
+ from bench_cfg import BenchConfig
+ from constants import CompileResults, LanguageType, PROJECT_PATH, ValResult
+ from utils.misc import extract_name
++from utils.llm_usage import HTTP_AUDIT_PATH, LoggedChatOpenAI, UsageLog, activate
++from utils.run_manifest import RunManifest, config_hash, derive_seed, docker_image_info, git_info
+ 
+ from agent.gen import ISSTAFuzzer
+ from agent.modules.fuzzenv import FuzzENV
+ from agent.modules.compilation import CompilerWraper
++from agent.modules import fitness as fitness_mod
+ from agent.modules.fitness import (
+     FitnessScores, extract_coverage_from_log, prompt_value,
+     STATUS_COMPILE_FAILED, STATUS_EVAL_ERROR, STATUS_EVAL_SKIPPED,
+@@ -30,7 +33,7 @@ from agent.modules.population import (
+ from agent.modules.variation import (
+     CrossoverOperator, MutationOperator, MUTATION_STRATEGIES,
+ )
+-from agent_tools.fuzz_tools.run_fuzzer import FuzzerRunner
++from agent_tools.fuzz_tools.run_fuzzer import FuzzerRunner, LIBFUZZER_SEED
+ 
+ 
+ # Default evolutionary hyper-parameters (overridden via YAML config)
+@@ -131,8 +134,19 @@ class EvoISSTAFuzzer:
+             / "evolution"
+         )
+         self.evo_dir.mkdir(parents=True, exist_ok=True)
++        self.target_dir: Path = self.evo_dir.parent   # run1_*/ initial runs, evolution/, manifest, usage log
+ 
+         self.logger = self._setup_logger()
++
++        # Run identity, seeding and per-request LLM usage log
++        self.target_id = f"{project_name}::{function_signature}"
++        self.run_id    = f"{uuid.uuid4().hex[:12]}"
++        self.seed      = derive_seed(benchcfg.seed, self.target_id) if benchcfg.seed is not None else None
++        if self.seed is not None:
++            random.seed(self.seed)
++        self.usage_log = activate(UsageLog(self.target_dir / "usage_log.jsonl", self.run_id, self.target_id))
++        self.initial_attempts: list[dict] = []
++        self.manifest: Optional[RunManifest] = None
+         self.archive = Archive(capacity=self.ecfg["evo_archive_capacity"])
+         self.generation_stats: list[dict] = []
+ 
+@@ -172,7 +186,7 @@ class EvoISSTAFuzzer:
+     def _load_llm(self) -> BaseChatModel:
+         cfg = self.benchcfg
+         if cfg.model_name == "CoreStableLLM":
+-            return ChatOpenAI(
++            return LoggedChatOpenAI(usage_max_retries=cfg.llm_max_retries,
+                 api_key    = cfg.llm_api_key,  # type: ignore
+                 base_url   = cfg.base_url,
+                 model      = "CoreStableLLM",
+@@ -180,16 +194,16 @@ class EvoISSTAFuzzer:
+             )
+         if cfg.model_name.startswith("gpt"):
+             if "gpt-5-mini" in cfg.model_name:
+-                return ChatOpenAI(
++                return LoggedChatOpenAI(usage_max_retries=cfg.llm_max_retries,
+                     api_key = cfg.llm_api_key,  # type: ignore
+                     model   = cfg.model_name,
+                 )
+-            return ChatOpenAI(
++            return LoggedChatOpenAI(usage_max_retries=cfg.llm_max_retries,
+                 api_key    = cfg.llm_api_key,  # type: ignore
+                 model      = cfg.model_name,
+                 temperature= cfg.temperature,
+             )
+-        return ChatOpenAI(
++        return LoggedChatOpenAI(usage_max_retries=cfg.llm_max_retries,
+             api_key    = os.getenv("OPENROUTER_API_KEY", ""),
+             base_url   = "https://openrouter.ai/api/v1",
+             model      = cfg.model_name,
+@@ -197,8 +211,42 @@ class EvoISSTAFuzzer:
+         )
+ 
+     
++    # Run manifest (static part, collected at runtime)
++
++
++    def _manifest_static(self) -> dict:
++        cfg = self.benchcfg
++        snapshot = cfg.snapshot_dict()
++        return {
++            "run_id":           self.run_id,
++            "target_id":        self.target_id,
++            "project":          self.project_name,
++            "function":         self.function_signature,
++            "repetition_index": cfg.repetition_index,
++            "seed": {"base_seed": cfg.seed, "seed_source": cfg.seed_source, "target_seed": self.seed,
++                     "derivation": "int(sha256(f'{base_seed}:{target_id}')[:8], 16) -> random.seed",
++                     "libfuzzer_seed": LIBFUZZER_SEED},
++            "config_hash":      config_hash(snapshot),
++            "config":           snapshot,
++            "code":             git_info(Path(PROJECT_PATH)),
++            "oss_fuzz":         git_info(cfg.oss_fuzz_dir),
++            "docker_images_start": docker_image_info(),
++            "llm": {"model_name": cfg.model_name, "base_url": cfg.base_url or None,
++                    "temperature_config": cfg.temperature, "reasoning": cfg.reasoning,
++                    "llm_max_retries": cfg.llm_max_retries, "http_audit_log": HTTP_AUDIT_PATH,
++                    "note": "per-request model/temperature actually sent: usage_log.jsonl and llm_observed_params"},
++            "evolution": dict(self.ecfg),
++            "fitness": {"W_COVERAGE": fitness_mod.W_COVERAGE, "W_FEATURES": fitness_mod.W_FEATURES,
++                        "W_EXEC": fitness_mod.W_EXEC, "W_STABILITY": fitness_mod.W_STABILITY,
++                        "CRASH_BONUS": fitness_mod.CRASH_BONUS, "NORM_COVERAGE": fitness_mod.NORM_COVERAGE,
++                        "NORM_FEATURES": fitness_mod.NORM_FEATURES, "NORM_EXEC": fitness_mod.NORM_EXEC},
++            "artifacts": {"target_dir": str(self.target_dir), "evolution_dir": str(self.evo_dir),
++                          "usage_log": str(self.usage_log.path),
++                          "generation_files": "evolution/gen_XXX/<idx>_<genome_id>.json (code + fitness)"},
++        }
++
+     # Shared evaluation environment
+-    
++
+ 
+     def _get_eval_env(self) -> _EvalEnv:
+         """Lazily create and cache the shared evaluation environment."""
+@@ -253,11 +301,17 @@ class EvoISSTAFuzzer:
+             f"=== Phase 1: generating initial population ({pop_size} harnesses) ==="
+         )
+         population: list[HarnessGenome] = []
++        self.usage_log.call_type, self.usage_log.generation = "initial_generation", 0
+ 
+         for i in range(pop_size):
+             self.logger.info(
+                 f"Initial harness {i + 1}/{pop_size}..."
+             )
++            # one record per attempt, so lost harnesses are explicit in the manifest
++            attempt: dict = {"index": i + 1, "status": None, "genome_id": None, "chars": None,
++                             "save_dir": None, "error": None}
++            self.initial_attempts.append(attempt)
++            n_before = len(population)
+             base: Optional[ISSTAFuzzer] = None
+             try:
+                 base = ISSTAFuzzer(
+@@ -266,8 +320,11 @@ class EvoISSTAFuzzer:
+                     self.project_name,
+                     n_run=i + 1,
+                 )
++                attempt["save_dir"] = str(base.save_dir)
+ 
+                 if base.early_exit_flag:
++                    # NOT a fresh generation: reuses a harness from an earlier run in this save_root
++                    attempt["status"] = "CACHED"
+                     # Workspace already exists — load cached harness
+                     harness_file = base.save_dir / "harness.txt"
+                     if harness_file.exists():
+@@ -292,21 +349,31 @@ class EvoISSTAFuzzer:
+                         self.logger.info(
+                             f"Generated initial harness {i + 1} ({len(code)} chars)"
+                         )
++                        attempt["status"] = "OK"
+                     else:
+                         self.logger.warning(
+                             f"Harness {i + 1} generated but code is empty."
+                         )
++                        attempt["status"] = "EMPTY_HARNESS"
+                 else:
+                     self.logger.warning(
+                         f"Harness {i + 1}: harness.txt not found."
+                     )
++                    attempt["status"] = "NO_HARNESS_FILE"
+ 
+             except Exception as exc:
+                 self.logger.error(
+                     f"Failed to generate initial harness {i + 1}: {exc}"
+                 )
+                 traceback.print_exc()
++                attempt["status"] = "EXCEPTION"
++                attempt["error"] = f"{type(exc).__name__}: {exc}"[:500]
+             finally:
++                if len(population) > n_before:
++                    attempt["genome_id"] = population[-1].genome_id
++                    attempt["chars"] = len(population[-1].code)
++                elif attempt["status"] == "CACHED":
++                    attempt["status"] = "CACHED_EMPTY"
+                 if base and not base.early_exit_flag:
+                     try:
+                         base.clean_workspace()
+@@ -543,6 +610,7 @@ class EvoISSTAFuzzer:
+         tournament_k     = self.ecfg["evo_tournament_k"]
+ 
+         for gen in range(1, generations + 1):
++            self.usage_log.call_type, self.usage_log.generation = None, gen
+             self.logger.info(f"\n{'─' * 50}")
+             self.logger.info(f"  Generation {gen}/{generations}")
+             self.logger.info(f"{'─' * 50}")
+@@ -685,34 +753,55 @@ class EvoISSTAFuzzer:
+         self.logger.info(f"Config: {self.ecfg}")
+         self.logger.info("=" * 60)
+ 
++        self.manifest = RunManifest(self.target_dir / "run_manifest.json", **self._manifest_static())
++        status = "failed"
++        best: list[HarnessGenome] = []
+         try:
+             # Phase 0: API context (used in variation prompts)
+-            api_context = self._get_api_context()
++            with self.manifest.phase("api_context"):
++                api_context = self._get_api_context()
+ 
+             # Phase 1: Initial population
+-            population = self._generate_initial_population()
++            with self.manifest.phase("initial_generation"):
++                population = self._generate_initial_population()
++            self.manifest.update(initial_attempts=self.initial_attempts)
+             if not population:
+                 self.logger.error("No harnesses generated in phase 1. Aborting.")
++                status = "aborted_no_initial_population"
+                 return []
+ 
+             # Phase 2: Evaluate initial population
+             self.logger.info("=== Phase 2: Evaluating initial population ===")
+-            population = self._evaluate_population(population, generation=0)
++            with self.manifest.phase("initial_evaluation"):
++                population = self._evaluate_population(population, generation=0)
+ 
+-            # Seed the archive with the evaluated initial population
+-            self.archive.update(population)
+-            self._save_generation(0, population)
++                # Seed the archive with the evaluated initial population
++                self.archive.update(population)
++                self._save_generation(0, population)
+ 
+             # Phase 3: Evolution
+             self.logger.info("=== Phase 3: Evolutionary loop ===")
+-            self._evolve(population, api_context)
++            with self.manifest.phase("evolution"):
++                self._evolve(population, api_context)
+ 
+             # Phase 4: Final results
+-            best = self.archive.best(5)
+-            self._save_final(best)
++            with self.manifest.phase("finalize"):
++                best = self.archive.best(5)
++                self._save_final(best)
++            status = "completed"
+             return best
+ 
+         finally:
++            self.manifest.finish(
++                status,
++                initial_attempts=self.initial_attempts,
++                generations_run=len(self.generation_stats),
++                best_genome_ids=[g.genome_id for g in best],
++                llm_requests_logged=self.usage_log.n_records,
++                llm_observed_params=[{"model": m, "temperature_sent": t, "response_model": r}
++                                     for m, t, r in sorted(self.usage_log.observed_params, key=str)],
++                docker_images_end=docker_image_info(),
++            )
+             # Clean up the shared evaluation environment
+             if self._eval_env and not self._eval_env.early_exit_flag:
+                 try:
+diff --git a/agent/gen.py b/agent/gen.py
+index b76fc70..0060214 100644
+--- a/agent/gen.py
++++ b/agent/gen.py
+@@ -31,7 +31,7 @@ from langgraph.checkpoint.memory import MemorySaver
+ from ossfuzz_gen import benchmark as benchmarklib
+ from ossfuzz_gen.context_introspector import ContextRetriever
+ from typing import Annotated
+-from langchain_openai import ChatOpenAI
++from utils.llm_usage import LoggedChatOpenAI
+ from langchain_core.language_models import BaseChatModel
+ from typing_extensions import TypedDict
+ from langgraph.graph.message import add_messages # type: ignore
+@@ -305,7 +305,8 @@ class ISSTAFuzzer(FuzzENV):
+ 
+         if self.benchcfg.example_mode == "rank":
+             self.logger.info("Using rank mode for example selection")
+-            code_usages = cache_example_selection(example_json_file, function_name, self.project_name, self.benchcfg.model_name)
++            code_usages = cache_example_selection(example_json_file, function_name, self.project_name, self.benchcfg.model_name,
++                                                  self.benchcfg.llm_max_retries)
+         
+         filter_code_usage = self.filter_examples(code_usages) # type: ignore
+ 
+@@ -428,7 +429,7 @@ class ISSTAFuzzer(FuzzENV):
+     def load_model(self) -> BaseChatModel:
+ 
+         if self.benchcfg.model_name == "CoreStableLLM":
+-            llm = ChatOpenAI(
++            llm = LoggedChatOpenAI(usage_max_retries=self.benchcfg.llm_max_retries,
+                 api_key=self.benchcfg.llm_api_key,  # type: ignore
+                 base_url=self.benchcfg.base_url,
+                 model="CoreStableLLM",
+@@ -436,18 +437,18 @@ class ISSTAFuzzer(FuzzENV):
+             )
+         elif self.benchcfg.model_name.startswith("gpt"):
+             if "gpt-5-mini" in self.benchcfg.model_name:
+-                llm = ChatOpenAI(
++                llm = LoggedChatOpenAI(usage_max_retries=self.benchcfg.llm_max_retries,
+                     api_key=self.benchcfg.llm_api_key,  # type: ignore
+                     model=self.benchcfg.model_name,
+                 )
+             else:
+-                llm = ChatOpenAI(
++                llm = LoggedChatOpenAI(usage_max_retries=self.benchcfg.llm_max_retries,
+                     api_key=self.benchcfg.llm_api_key,  # type: ignore
+                     model=self.benchcfg.model_name,
+                     temperature=self.benchcfg.temperature,
+                 )
+         elif self.benchcfg.model_name.startswith("anthropic"):
+-            llm = ChatOpenAI(
++            llm = LoggedChatOpenAI(usage_max_retries=self.benchcfg.llm_max_retries,
+                 api_key=os.getenv("OPENROUTER_API_KEY", ""), # type: ignore
+                 base_url="https://openrouter.ai/api/v1",
+                 model=self.benchcfg.model_name,
+@@ -461,7 +462,7 @@ class ISSTAFuzzer(FuzzENV):
+                 }
+             )
+         else:
+-            llm = ChatOpenAI(
++            llm = LoggedChatOpenAI(usage_max_retries=self.benchcfg.llm_max_retries,
+                 api_key=os.getenv("OPENROUTER_API_KEY", ""), # type: ignore
+                 base_url="https://openrouter.ai/api/v1",
+                 model=self.benchcfg.model_name,
+@@ -541,7 +542,8 @@ class ISSTAFuzzer(FuzzENV):
+         )
+         if self.benchcfg.base_url:         # Only send if base_url is not empty
+             _extract_kwargs["base_url"] = self.benchcfg.base_url
+-        llm_extract = ChatOpenAI(**_extract_kwargs)  # type: ignore
++        llm_extract = LoggedChatOpenAI(usage_call_type="code_extract", usage_max_retries=self.benchcfg.llm_max_retries,
++                                       **_extract_kwargs)  # type: ignore
+         llm = self.load_model()
+ 
+         # code formatter
+diff --git a/agent/modules/fixer.py b/agent/modules/fixer.py
+index 7318a7b..4905a50 100644
+--- a/agent/modules/fixer.py
++++ b/agent/modules/fixer.py
+@@ -6,6 +6,7 @@ from utils.misc import save_code_to_file
+ from pathlib import Path
+ from utils.misc import fix_qwen_tool_calls, fix_claude_tool_calls
+ from langgraph.graph import END # type: ignore
++from utils.llm_usage import usage_scope
+ 
+ class CodeFixer:
+     def __init__(self, runnable: BaseChatModel, max_fix: int, max_tool_call: int, save_dir: Path, 
+@@ -28,7 +29,8 @@ class CodeFixer:
+         
+         response = None # type: ignore
+         for _ in range(3):
+-            response: BaseMessage = self.runnable.invoke(state["messages"])
++            with usage_scope(call_type="harness_fix"):
++                response: BaseMessage = self.runnable.invoke(state["messages"])
+             if hasattr(response, 'invalid_tool_calls') and response.invalid_tool_calls: # type: ignore
+                 # Choose the appropriate fix function based on model type
+                 if self.model_name.startswith("anthropic"):
+diff --git a/agent/modules/generator.py b/agent/modules/generator.py
+index bc817b3..e612db0 100644
+--- a/agent/modules/generator.py
++++ b/agent/modules/generator.py
+@@ -6,6 +6,7 @@ from utils.misc import save_code_to_file
+ from pathlib import Path
+ from utils.misc import fix_qwen_tool_calls, fix_claude_tool_calls
+ from langgraph.graph import END # type: ignore
++from utils.llm_usage import usage_scope
+ 
+ class HarnessGenerator:
+     def __init__(self, runnable: BaseChatModel, max_tool_call: int, continue_flag: bool,
+@@ -35,7 +36,8 @@ class HarnessGenerator:
+         # prompt is in the messages
+         response = None # type: ignore
+         for _ in range(3):
+-            response: BaseMessage = self.runnable.invoke(messages)
++            with usage_scope(call_type="harness_generate"):
++                response: BaseMessage = self.runnable.invoke(messages)
+ 
+             if hasattr(response, 'invalid_tool_calls') and response.invalid_tool_calls: # type: ignore
+                 # Choose the appropriate fix function based on model type
+diff --git a/agent/modules/variation.py b/agent/modules/variation.py
+index ad5a919..871a58d 100644
+--- a/agent/modules/variation.py
++++ b/agent/modules/variation.py
+@@ -9,6 +9,7 @@ from langchain_core.language_models import BaseChatModel
+ from langchain_core.messages import HumanMessage
+ 
+ from agent.modules.fitness import prompt_value
++from utils.llm_usage import usage_scope
+ from agent.modules.population import HarnessGenome
+ from constants import PROJECT_PATH, LanguageType
+ 
+@@ -173,7 +174,8 @@ class MutationOperator:
+         )
+ 
+         try:
+-            response = self.llm.invoke([HumanMessage(content=prompt)])
++            with usage_scope(call_type="mutation"):
++                response = self.llm.invoke([HumanMessage(content=prompt)])
+             mutated  = _extract_cpp_code(response.content)
+             self.logger.info(
+                 f"[Mutation] success — output length: {len(mutated)} chars"
+@@ -234,7 +236,8 @@ class CrossoverOperator:
+         )
+ 
+         try:
+-            response  = self.llm.invoke([HumanMessage(content=prompt)])
++            with usage_scope(call_type="crossover"):
++                response  = self.llm.invoke([HumanMessage(content=prompt)])
+             offspring = _extract_cpp_code(response.content)
+             self.logger.info(
+                 f"[Crossover] success — output length: {len(offspring)} chars"
+diff --git a/agent/run_evo_gen.py b/agent/run_evo_gen.py
+index 8d798b3..4af01d1 100644
+--- a/agent/run_evo_gen.py
++++ b/agent/run_evo_gen.py
+@@ -3,6 +3,7 @@ from __future__ import annotations
+ import argparse
+ import json
+ import os
++import secrets
+ import signal
+ import sys
+ import time
+@@ -50,9 +51,34 @@ def _parse_args() -> argparse.Namespace:
+         default=None,
+         help="Override: number of parallel processes (default: from config)",
+     )
++    p.add_argument(
++        "--seed",
++        type=int,
++        default=None,
++        help="Override: base seed (default: config 'seed'; generated and recorded if unset)",
++    )
++    p.add_argument(
++        "--repetition",
++        type=int,
++        default=None,
++        help="Override: repetition index recorded in run_manifest.json (default: config 'repetition_index')",
++    )
+     return p.parse_args()
+ 
+ 
++def _finalize_run_config(cfg: BenchConfig, seed: int | None, repetition: int | None) -> None:
++    """Apply CLI overrides, fix the base seed, and write the redacted config snapshot."""
++    if seed is not None:
++        cfg.seed, cfg.seed_source = seed, "cli"
++    if cfg.seed is None:
++        cfg.seed, cfg.seed_source = secrets.randbelow(2**31), "generated"
++    if repetition is not None:
++        cfg.repetition_index = repetition
++    cfg.save_root.mkdir(parents=True, exist_ok=True)
++    cfg.write_snapshot(cfg.save_root / f"config_rep{cfg.repetition_index}.yaml")
++    print(f"[EvoRunner] repetition={cfg.repetition_index} base_seed={cfg.seed} ({cfg.seed_source})")
++
++
+ # Single-function runner (designed to be picklable for multiprocessing)
+ 
+ def _run_one(
+@@ -220,6 +246,7 @@ def main() -> None:
+ 
+     if args.function and args.project:
+         # Single-function mode
++        _finalize_run_config(cfg, args.seed, args.repetition)
+         _run_one(cfg, args.function, args.project, resume=args.resume)
+     else:
+         # Batch mode
+@@ -228,6 +255,7 @@ def main() -> None:
+             processes = args.processes,
+             resume    = args.resume,
+         )
++        _finalize_run_config(runner.cfg, args.seed, args.repetition)
+         runner.run()
+ 
+ 
+diff --git a/agent/run_gen.py b/agent/run_gen.py
+index ec1fc02..ec1a03a 100644
+--- a/agent/run_gen.py
++++ b/agent/run_gen.py
+@@ -11,6 +11,9 @@ from agent_tools.results_analysis import run_agent_res
+ from bench_cfg import BenchConfig
+ import traceback  # Add this at the top
+ import json
++import uuid
++from pathlib import Path
++from utils.llm_usage import UsageLog, activate
+ from constants import LanguageType
+ 
+ class Runner:
+@@ -70,6 +73,8 @@ class Runner:
+         """Run the fuzzer on a single function."""
+ 
+         agent_fuzzer = ISSTAFuzzer(config, function_signature, project_name, n_run=n_run)
++        activate(UsageLog(Path(agent_fuzzer.save_dir) / "usage_log.jsonl", uuid.uuid4().hex[:12],
++                          f"{project_name}::{function_signature}"))
+         try:
+         # Your main logic here
+             graph = agent_fuzzer.build_graph()
+diff --git a/agent_tools/example_selection.py b/agent_tools/example_selection.py
+index 6778681..455ae15 100644
+--- a/agent_tools/example_selection.py
++++ b/agent_tools/example_selection.py
+@@ -1,4 +1,4 @@
+-from langchain_openai import ChatOpenAI
++from utils.llm_usage import LoggedChatOpenAI
+ from constants import PROJECT_PATH
+ from pathlib import Path
+ from pydantic import BaseModel, Field
+@@ -14,12 +14,12 @@ class AnswerStruct(BaseModel):
+ 
+ 
+ class LLMSelector:
+-    def __init__(self, model_name: str):
++    def __init__(self, model_name: str, max_retries: int = 2):
+         self.name = "LLM"
+         if model_name.startswith("gpt"):
+-            llm = ChatOpenAI(model=model_name)
++            llm = LoggedChatOpenAI(model=model_name, usage_call_type="example_selection", usage_max_retries=max_retries)
+         else:
+-            llm = ChatOpenAI(
++            llm = LoggedChatOpenAI(usage_call_type="example_selection", usage_max_retries=max_retries,
+                 api_key=os.getenv("OPENROUTER_API_KEY", ""), # type: ignore
+                 base_url="https://openrouter.ai/api/v1",
+                 model=model_name,
+@@ -58,7 +58,8 @@ class LLMSelector:
+                 return 0
+         
+ 
+-def cache_example_selection(json_file: Path, function_name:str, project_name:str,   llm_name: str = "gpt-4.1") -> list[dict[str, Any]]:
++def cache_example_selection(json_file: Path, function_name:str, project_name:str,   llm_name: str = "gpt-4.1",
++                            max_retries: int = 2) -> list[dict[str, Any]]:
+     """Cache the example selection results."""
+     # 
+     llm_norm = llm_name.replace("/", "_")
+@@ -77,7 +78,7 @@ def cache_example_selection(json_file: Path, function_name:str, project_name:str
+         data = f.read()
+         json_data = json.loads(data)
+     # add new key-value pair to indicate the example 
+-    llm_selector = LLMSelector(llm_name)
++    llm_selector = LLMSelector(llm_name, max_retries)
+     # a roughly 1000 tokens limit for the source code
+     enc = tiktoken.encoding_for_model("gpt-4o")
+     res_list:list[dict[str, Any]] = []            
+diff --git a/agent_tools/fuzz_tools/run_fuzzer.py b/agent_tools/fuzz_tools/run_fuzzer.py
+index e29c38b..b87452c 100644
+--- a/agent_tools/fuzz_tools/run_fuzzer.py
++++ b/agent_tools/fuzz_tools/run_fuzzer.py
+@@ -7,6 +7,8 @@ from pathlib import Path
+ from typing import Any
+ import threading
+ 
++LIBFUZZER_SEED = 1234  # -seed passed to every libFuzzer run (recorded in run_manifest.json)
++
+ def kill_process(process: Any):
+     try:
+         if process and process.poll() is None:
+@@ -80,7 +82,7 @@ class FuzzerRunner():
+                         # Timeout per testcase.
+                     '-timeout=30',
+                     '-detect_leaks=0',
+-                    '-seed=1234',
++                    f'-seed={LIBFUZZER_SEED}',
+                    
+             ]
+         if ignore_crashes:
+diff --git a/bench_cfg.py b/bench_cfg.py
+index 51eb126..dcc2504 100644
+--- a/bench_cfg.py
++++ b/bench_cfg.py
+@@ -69,6 +69,7 @@ class BenchConfig:
+         if not self.llm_api_key:
+             sys.exit("ERROR: environment variable OPENAI_API_KEY is not set (it is also the key used "
+                      "for base_url endpoints such as CoreStableLLM). Set it with: export OPENAI_API_KEY=<key>")
++        self.llm_max_retries = self.config.get('llm_max_retries', 2)  # retries per request after the first attempt
+         self.reasoning = self.config.get('reasoning', False)
+         self.temperature = self.config.get('temperature', 0.7)
+         self.run_time = self.config.get('run_time', 1)
+@@ -108,6 +109,11 @@ class BenchConfig:
+         self.coverage_input_timeout = self.config.get('coverage_input_timeout', 25)    # seconds per replayed input
+         self.coverage_total_timeout = self.config.get('coverage_total_timeout', 3600)  # seconds for the whole replay
+ 
++        # provenance of one run (recorded in run_manifest.json); CLI flags may override
++        self.seed = self.config.get('seed', None)                 # base seed; None -> generated at start
++        self.seed_source = "config" if self.seed is not None else None
++        self.repetition_index = self.config.get('repetition_index', 0)
++
+         # for extracting all functions from project (skip generation)
+         self.extract_all_functions = self.config.get('extract_all_functions', False)
+ 
+diff --git a/cfg/evo/p03_smoke_ada.yaml b/cfg/evo/p03_smoke_ada.yaml
+new file mode 100644
+index 0000000..ea4cc0f
+--- /dev/null
++++ b/cfg/evo/p03_smoke_ada.yaml
+@@ -0,0 +1,87 @@
++# Paths
++
++oss_fuzz_dir: /home/ubuntu/fuzzing_workspace/oss-fuzz/
++save_root: outputs/p03_smoke/
++cache_root: /home/ubuntu/fuzzing_workspace/cache/
++bench_dir: /home/ubuntu/fuzzing_workspace/LLM-reasoning-agents/benchmark-sets/function_0
++
++
++# LLM Settings
++# Slightly higher temperature than the base agent to encourage diversity.
++# model_name:        "CoreStableLLM"
++# base_url:          "https://llm-test.ssl.qom.ac.ir/llm/v1/"
++model_name: "gpt-5-mini"
++base_url: ""
++temperature:       0.85
++reasoning:         false
++model_token_limit: 8096
++usage_token_limit: 1000
++
++# HarnessAgent Base Settings
++# These control the initial-population generation (Phase 1).
++# They mirror the standard ISSTAFuzzer configuration.
++
++run_time:              3       # minutes for full fuzz run (NOT used during evo eval)
++max_fix:               5       # LLM fix iterations during initial generation
++max_tool_call:         30      # tool calls per fix iteration
++fixing_mode:           "agent" # raw | issta | oss_fuzz | agent
++header_mode:           "static" # static | all | agent | oss_fuzz | no
++semantic_mode:         "both"  # both | eval | none
++n_examples:            3
++example_mode:          "rank"  # rank | random
++example_source:        "project"
++definition_flag:       false
++driver_flag:           false
++compile_enhance:       false
++memory_flag:           false
++use_cache_harness_pairs: false #true
++clear_msg_flag:        true
++ignore_crashes:        true    # let evolutionary evaluation continue past crashes
++no_log:                false
++
++# Evolutionary Algorithm Settings
++# Population
++evo_population_size:   2       # number of initial harnesses (Phase 1 runs)
++
++# Evolution loop
++evo_generations:       1       # total generations
++evo_offspring_per_gen: 2       # new harnesses created per generation
++
++# Genetic operator probabilities
++evo_crossover_prob:    0.40    # P(crossover) — rest is P(mutation)
++
++# Selection
++evo_tournament_k:      3       # tournament pool size
++
++# Archive
++evo_archive_capacity:  20      # max genomes stored in diversity archive
++
++# Elitism
++evo_elite_count:       2       # elites copied unchanged to next generation
++
++# Fitness evaluation  (short fuzz trial per offspring)
++evo_fuzz_trial_seconds: 60     # seconds (1 min = fast evaluation)
++
++                                # increase to 120-300 for more accurate fitness
++
++# Early stopping
++evo_convergence_window: 3      # stop if archive best-cov unchanged for N gens
++
++# Parallelism
++# Parallelism at the function level (one EvoISSTAFuzzer per function).
++# Within each function, evolution is serial.
++num_processes: 1        # parallel functions
++
++
++# Benchmark Targets
++# Leave empty [] to run all projects / functions found in bench_dir.
++project_name:        [ada-url]   # e.g. ["libxml2", "cjson"]
++function_signatures: ["ada_url ada_parse_with_base(const char *, size_t, const char *, size_t)"]   # e.g. ["int xmlXIncludeProcessTreeFlags(xmlNodePtr, int)"]
++funcs_per_project:   1    # max functions per project (0 = unlimited)
++language:            "C" 
++
++
++# PATCH 3 smoke run (provenance + usage logging)
++seed:             12345
++repetition_index: 0
++llm_max_retries:  2
+diff --git a/scripts/p03_check_run.py b/scripts/p03_check_run.py
+new file mode 100644
+index 0000000..9d513c0
+--- /dev/null
++++ b/scripts/p03_check_run.py
+@@ -0,0 +1,75 @@
++"""PATCH 3 run checker: is one target run fully recorded?
++
++Usage: python scripts/p03_check_run.py <target_dir> [--http-audit FILE]
++<target_dir> = <save_root>/<project>/<function>/ (holds run_manifest.json, usage_log.jsonl, evolution/)
++--http-audit: LLMGA_HTTP_AUDIT file of a single-process run, to compare request counts.
++"""
++import argparse
++import json
++import sys
++from collections import defaultdict
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
++from utils.llm_usage import USAGE_FIELDS  # noqa: E402
++
++ap = argparse.ArgumentParser()
++ap.add_argument("target_dir")
++ap.add_argument("--http-audit", default=None)
++args = ap.parse_args()
++d = Path(args.target_dir)
++checks: list[tuple[str, bool, str]] = []
++
++
++def check(name: str, ok: bool, detail: str = "") -> None:
++    checks.append((name, bool(ok), detail))
++
++
++m = json.loads((d / "run_manifest.json").read_text())
++check("manifest status completed", m.get("status") == "completed", m.get("status"))
++check("code commit recorded", bool(m["code"].get("commit")), f"{m['code'].get('commit')} dirty={m['code'].get('dirty')}")
++check("oss-fuzz commit recorded", bool(m["oss_fuzz"].get("commit")), str(m["oss_fuzz"].get("commit")))
++images = {**m.get("docker_images_start", {}), **{f"{k} (end)": v for k, v in m.get("docker_images_end", {}).items()}}
++check("base image ids recorded (end of run)", all(v.get("id") for k, v in images.items() if k.endswith("(end)")),
++      "; ".join(f"{k}: {v.get('id') or v.get('error')}" for k, v in images.items()))
++check("seed recorded", m["seed"].get("base_seed") is not None and m["seed"].get("target_seed") is not None,
++      json.dumps(m["seed"]))
++check("config + config_hash recorded", bool(m.get("config")) and len(m.get("config_hash", "")) == 64, m.get("config_hash"))
++phases = m.get("phases", {})
++check("phase wall-clock recorded", all(phases.get(p, {}).get("seconds") is not None
++                                       for p in ("initial_generation", "initial_evaluation", "evolution")),
++      ", ".join(f"{k}={v.get('seconds')}s" for k, v in phases.items()))
++attempts = m.get("initial_attempts", [])
++check("one record per initial attempt", len(attempts) == m["evolution"]["evo_population_size"],
++      ", ".join(f"{a['index']}:{a['status']}" for a in attempts))
++
++lines = [json.loads(x) for x in (d / "usage_log.jsonl").read_text().splitlines()]
++check("usage lines have exactly the 14 fields", all(tuple(r) == USAGE_FIELDS for r in lines), f"{len(lines)} lines")
++check("usage lines belong to this run", all(r["run_id"] == m["run_id"] for r in lines))
++check("manifest count == usage lines", m.get("llm_requests_logged") == len(lines),
++      f"{m.get('llm_requests_logged')} vs {len(lines)}")
++if args.http_audit:
++    posts = [x for x in Path(args.http_audit).read_text().splitlines() if "HTTP Request: POST" in x]
++    check("usage lines == HTTP POST requests (audit)", len(posts) == len(lines), f"{len(lines)} vs {len(posts)}")
++ok = [r for r in lines if r["outcome"] == "ok"]
++check("successful requests carry provider usage", all(r["usage_source"] == "provider" for r in ok),
++      f"missing={sum(r['usage_source'] == 'missing' for r in ok)}")
++
++gen0 = sorted((d / "evolution" / "gen_000").glob("*.json"))
++check("generation-0 genomes persisted with fitness status", bool(gen0) and all(
++    "status" in json.loads(p.read_text())["fitness"] for p in gen0), f"{len(gen0)} genome files")
++
++per_type: dict = defaultdict(lambda: [0, 0, 0, 0])
++for r in lines:
++    t = per_type[(r["generation"], r["call_type"])]
++    t[0] += 1
++    t[1] += r["prompt_tokens"] or 0
++    t[2] += r["cached_prompt_tokens"] or 0
++    t[3] += r["completion_tokens"] or 0
++
++for name, passed, detail in checks:
++    print(f"{'PASS' if passed else 'FAIL'}  {name}  [{detail}]")
++print("\nrequests / prompt / cached / completion tokens by (generation, call_type) (provider-reported only):")
++for key, (n, p, c, o) in sorted(per_type.items(), key=lambda kv: str(kv[0])):
++    print(f"  {key}: {n} / {p} / {c} / {o}")
++print("OVERALL:", "PASS" if all(p for _, p, _ in checks) else "FAIL")
+diff --git a/scripts/p03_usage_smoke.py b/scripts/p03_usage_smoke.py
+new file mode 100644
+index 0000000..ea6cf60
+--- /dev/null
++++ b/scripts/p03_usage_smoke.py
+@@ -0,0 +1,79 @@
++"""PATCH 3 real-API smoke test: usage_log.jsonl lines == HTTP requests seen by httpx.
++
++Makes a handful of small requests (a few cents) through LoggedChatOpenAI, along the
++same code paths the pipeline uses: plain invoke, bind_tools, structured output
++(as in code_extract, temperature=0), and .stream().
++Usage: python scripts/p03_usage_smoke.py [--model gpt-5-mini] [--out /tmp/p03_smoke]
++"""
++import argparse
++import json
++import os
++import sys
++from pathlib import Path
++
++ap = argparse.ArgumentParser()
++ap.add_argument("--model", default="gpt-5-mini")
++ap.add_argument("--out", default="/tmp/p03_smoke")
++args = ap.parse_args()
++out = Path(args.out)
++out.mkdir(parents=True, exist_ok=True)
++audit = out / "http_audit.log"
++usage = out / "usage_log.jsonl"
++for f in (audit, usage):
++    f.unlink(missing_ok=True)
++os.environ["LLMGA_HTTP_AUDIT"] = str(audit)       # must be set before importing llm_usage
++
++sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
++from langchain_core.tools import tool  # noqa: E402
++from agent.modules.code_format import CodeAnswerStruct  # noqa: E402
++from utils.llm_usage import USAGE_FIELDS, LoggedChatOpenAI, UsageLog, activate, usage_scope  # noqa: E402
++
++
++@tool
++def get_symbol_header(symbol: str) -> str:
++    """Return the header that declares `symbol`."""
++    return "#include <stdio.h>"
++
++
++log = activate(UsageLog(usage, "smoke", "smoke::none"))
++llm = LoggedChatOpenAI(model=args.model)                                     # as gen.py / evo_gen.py (gpt-5-mini branch)
++extract = LoggedChatOpenAI(model=args.model, temperature=0, usage_call_type="code_extract")  # as gen.py llm_extract
++print("sdk max_retries:", llm.root_client.max_retries)
++
++steps = [
++    ("plain", lambda: llm.invoke("Reply with the single word: ok")),
++    ("bind_tools", lambda: llm.bind_tools([get_symbol_header]).invoke("Which header declares printf? Use the tool.")),
++    ("structured_t0", lambda: extract.with_structured_output(CodeAnswerStruct).invoke(
++        "Split this answer: Here is code:\n```c\nint main(void){return 0;}\n```\nDone.")),
++    ("stream", lambda: list(llm.stream("Reply with the single word: ok"))),
++]
++for name, fn in steps:
++    with usage_scope(call_type=name, generation=0):
++        try:
++            fn()
++            print(f"{name}: ok")
++        except Exception as exc:
++            print(f"{name}: raised {type(exc).__name__}: {str(exc)[:200]}")
++
++records = [json.loads(x) for x in usage.read_text().splitlines()]
++posts = [x for x in audit.read_text().splitlines() if "HTTP Request: POST" in x] if audit.exists() else []
++print("\n--- usage_log.jsonl ---")
++for r in records:
++    print({k: r[k] for k in ("call_type", "model", "temperature", "prompt_tokens", "cached_prompt_tokens",
++                             "completion_tokens", "usage_source", "retry_index", "outcome", "latency_ms")})
++print("\n--- http_audit.log (POST lines) ---")
++for p in posts:
++    print(p[:200])
++ok = [r for r in records if r["outcome"] == "ok"]
++checks = [
++    ("usage lines == HTTP POST requests", len(records) == len(posts) and len(records) > 0),
++    ("every line has exactly the 14 fields", all(tuple(r) == USAGE_FIELDS for r in records)),
++    ("successful requests carry provider usage (non-null tokens)",
++     all(r["usage_source"] == "provider" and isinstance(r["prompt_tokens"], int)
++         and isinstance(r["completion_tokens"], int) for r in ok)),
++    ("SDK-internal retries disabled", llm.root_client.max_retries == 0),
++]
++for name, passed in checks:
++    print(f"{'PASS' if passed else 'FAIL'}  {name}")
++print(f"usage_lines={len(records)} http_posts={len(posts)} observed_params={sorted(log.observed_params, key=str)}")
++print("OVERALL:", "PASS" if all(p for _, p in checks) else "FAIL")
+diff --git a/tests/test_p03_usage.py b/tests/test_p03_usage.py
+new file mode 100644
+index 0000000..c8b3c84
+--- /dev/null
++++ b/tests/test_p03_usage.py
+@@ -0,0 +1,175 @@
++"""PATCH 3 unit tests: one usage line per API request (mocked provider), and the run manifest."""
++import json
++
++import httpx
++import openai
++import pytest
++from langchain_core.messages import AIMessage
++from langchain_core.outputs import ChatGeneration, ChatResult
++from langchain_core.tools import tool
++from langchain_openai import ChatOpenAI
++
++from utils import llm_usage
++from utils.llm_usage import USAGE_FIELDS, LoggedChatOpenAI, UsageLog, activate, usage_scope
++from utils.run_manifest import RunManifest, config_hash, derive_seed, git_info
++
++FAKE_KEY = "sk-" + "test" + "x" * 40
++
++
++def _result(with_usage=True):
++    kw = {"response_metadata": {"model_name": "gpt-5-mini-2025-08-07"}}
++    if with_usage:
++        kw["usage_metadata"] = {"input_tokens": 10, "output_tokens": 5, "total_tokens": 15,
++                                "input_token_details": {"cache_read": 3}}
++    return ChatResult(generations=[ChatGeneration(message=AIMessage(content="ok", **kw))])
++
++
++def _status_error(cls, code):
++    req = httpx.Request("POST", "https://api.openai.com/v1/chat/completions")
++    return cls(f"{code}", response=httpx.Response(code, request=req), body=None)
++
++
++class FakeProvider:
++    """Stands in for the real API: each call to ChatOpenAI._generate is one request."""
++
++    def __init__(self, outcomes):
++        self.outcomes = list(outcomes)
++        self.calls = 0
++
++    # Installed as a class attribute (not a function), so it is called without `self`.
++    def __call__(self, messages, stop=None, run_manager=None, **kwargs):
++        self.calls += 1
++        out = self.outcomes.pop(0)
++        if isinstance(out, Exception):
++            raise out
++        return out
++
++
++@pytest.fixture
++def log(tmp_path, monkeypatch):
++    monkeypatch.setattr(llm_usage.time, "sleep", lambda s: None)
++    return activate(UsageLog(tmp_path / "usage_log.jsonl", "run123", "proj::f()"))
++
++
++def _provider(monkeypatch, outcomes):
++    fake = FakeProvider(outcomes)
++    monkeypatch.setattr(ChatOpenAI, "_generate", fake)
++    return fake
++
++
++def _lines(log):
++    return [json.loads(x) for x in log.path.read_text().splitlines()] if log.path.exists() else []
++
++
++def _llm(**kw):
++    return LoggedChatOpenAI(api_key=FAKE_KEY, model="gpt-5-mini", **kw)
++
++
++def test_success_logs_exactly_one_line_with_exact_fields(log, monkeypatch):
++    fake = _provider(monkeypatch, [_result()])
++    with usage_scope(call_type="mutation", generation=3):
++        _llm().invoke("hi")
++    lines = _lines(log)
++    assert fake.calls == len(lines) == 1
++    rec = lines[0]
++    assert tuple(rec.keys()) == USAGE_FIELDS
++    assert (rec["prompt_tokens"], rec["cached_prompt_tokens"], rec["completion_tokens"]) == (10, 3, 5)
++    assert (rec["usage_source"], rec["outcome"], rec["retry_index"]) == ("provider", "ok", 0)
++    assert (rec["run_id"], rec["target_id"], rec["generation"], rec["call_type"]) == ("run123", "proj::f()", 3, "mutation")
++    assert rec["model"] == "gpt-5-mini" and isinstance(rec["latency_ms"], int)
++    assert ("gpt-5-mini", rec["temperature"], "gpt-5-mini-2025-08-07") in log.observed_params
++
++
++def test_retries_and_failures_each_logged(log, monkeypatch):
++    fake = _provider(monkeypatch, [_status_error(openai.RateLimitError, 429),
++                                   _status_error(openai.InternalServerError, 500), _result()])
++    _llm(usage_max_retries=2).invoke("hi")
++    lines = _lines(log)
++    assert fake.calls == len(lines) == 3
++    assert [r["retry_index"] for r in lines] == [0, 1, 2]
++    assert [r["outcome"] for r in lines] == ["error:RateLimitError", "error:InternalServerError", "ok"]
++    assert all(r["prompt_tokens"] is None and r["usage_source"] == "missing" for r in lines[:2])
++
++
++def test_retries_exhausted_raises_and_logs_every_attempt(log, monkeypatch):
++    fake = _provider(monkeypatch, [_status_error(openai.RateLimitError, 429)] * 3)
++    with pytest.raises(openai.RateLimitError):
++        _llm(usage_max_retries=2).invoke("hi")
++    assert fake.calls == len(_lines(log)) == 3
++
++
++def test_non_retryable_error_logged_once(log, monkeypatch):
++    fake = _provider(monkeypatch, [_status_error(openai.BadRequestError, 400)])
++    with pytest.raises(openai.BadRequestError):
++        _llm().invoke("hi")
++    assert fake.calls == len(_lines(log)) == 1
++    assert _lines(log)[0]["outcome"] == "error:BadRequestError"
++
++
++def test_missing_usage_is_null_not_zero(log, monkeypatch):
++    _provider(monkeypatch, [_result(with_usage=False)])
++    _llm().invoke("hi")
++    rec = _lines(log)[0]
++    assert rec["usage_source"] == "missing"
++    assert rec["prompt_tokens"] is None and rec["cached_prompt_tokens"] is None and rec["completion_tokens"] is None
++
++
++def test_bind_tools_stream_and_fixed_call_type_all_logged(log, monkeypatch):
++    @tool
++    def lookup(symbol: str) -> str:
++        """Look up a symbol."""
++        return symbol
++
++    fake = _provider(monkeypatch, [_result(), _result(), _result()])
++    llm = _llm()
++    llm.bind_tools([lookup]).invoke("use the tool")
++    list(llm.stream("streamed"))                       # disable_streaming -> one non-streaming request
++    _llm(usage_call_type="code_extract").invoke("extract")
++    lines = _lines(log)
++    assert fake.calls == len(lines) == 3
++    assert lines[2]["call_type"] == "code_extract"
++
++
++def test_sdk_retries_disabled():
++    assert _llm().max_retries == 0
++
++
++def test_no_active_log_refuses_the_call(monkeypatch):
++    monkeypatch.setattr(llm_usage, "_ACTIVE", None)
++    fake = _provider(monkeypatch, [_result()])
++    with pytest.raises(RuntimeError, match="usage log"):
++        _llm().invoke("hi")
++    assert fake.calls == 0
++
++
++# ---- manifest -------------------------------------------------------------
++
++def test_manifest_phases_and_finish(tmp_path):
++    m = RunManifest(tmp_path / "run_manifest.json", run_id="r1", seed={"base_seed": 7})
++    assert json.loads(m.path.read_text())["status"] == "running"
++    with m.phase("initial_generation"):
++        pass
++    m.finish("completed", llm_requests_logged=4)
++    data = json.loads(m.path.read_text())
++    assert data["status"] == "completed" and data["end_time"]
++    assert data["phases"]["initial_generation"]["seconds"] >= 0
++    assert data["llm_requests_logged"] == 4
++
++
++def test_config_hash_ignores_only_run_varying_fields():
++    a = {"seed": 1, "repetition_index": 0, "save_root": "/a", "temperature": 1,
++         "config": {"seed": 1, "evo_generations": 10}}
++    b = {"seed": 2, "repetition_index": 4, "save_root": "/b", "temperature": 1,
++         "config": {"seed": 2, "evo_generations": 10}}
++    c = dict(a, temperature=0.5)
++    assert config_hash(a) == config_hash(b) != config_hash(c)
++
++
++def test_derive_seed_is_stable_and_target_specific():
++    assert derive_seed(42, "p::f") == derive_seed(42, "p::f")
++    assert derive_seed(42, "p::f") != derive_seed(42, "p::g") != derive_seed(43, "p::f")
++
++
++def test_git_info_outside_repo_reports_error(tmp_path):
++    info = git_info(tmp_path)
++    assert info["commit"] is None and "error" in info
+diff --git a/utils/llm_usage.py b/utils/llm_usage.py
+new file mode 100644
+index 0000000..ee98ff0
+--- /dev/null
++++ b/utils/llm_usage.py
+@@ -0,0 +1,182 @@
++"""Per-request LLM usage accounting.
++
++Every chat-model request made by the pipeline goes through LoggedChatOpenAI,
++which appends exactly one JSON line per API request (successes, failures and
++retries) to the active UsageLog. Token fields come only from the provider's
++response; when the provider returns no usage they are null with
++usage_source="missing" -- never estimated, never 0.
++"""
++from __future__ import annotations
++
++import contextlib
++import json
++import logging
++import os
++import random
++import threading
++import time
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any, Iterator, Literal, Optional, Union
++
++import openai
++from langchain_core.runnables.config import run_in_executor
++from langchain_openai import ChatOpenAI
++
++USAGE_FIELDS = ("timestamp", "run_id", "target_id", "generation", "call_type", "model", "temperature",
++                "prompt_tokens", "cached_prompt_tokens", "completion_tokens", "usage_source",
++                "retry_index", "outcome", "latency_ms")
++
++# Jitter for retry backoff; separate from the global `random` so the
++# experiment's seeded selection stream is not consumed by retries.
++_JITTER = random.Random()
++
++# Optional independent audit: LLMGA_HTTP_AUDIT=<file> appends httpx's own
++# "HTTP Request: POST ..." line for every request, to cross-check the usage log.
++HTTP_AUDIT_PATH = os.environ.get("LLMGA_HTTP_AUDIT")
++if HTTP_AUDIT_PATH:
++    _audit = logging.FileHandler(HTTP_AUDIT_PATH)
++    _audit.setFormatter(logging.Formatter("%(asctime)s %(process)d %(message)s"))
++    logging.getLogger("httpx").addHandler(_audit)
++    logging.getLogger("httpx").setLevel(logging.INFO)
++
++
++class UsageLog:
++    """Append-only usage_log.jsonl for one run (one target, one repetition)."""
++
++    def __init__(self, path: Path, run_id: str, target_id: str) -> None:
++        self.path = Path(path)
++        self.path.parent.mkdir(parents=True, exist_ok=True)
++        self.run_id = run_id
++        self.target_id = target_id
++        self.call_type: Optional[str] = None
++        self.generation: Optional[int] = None
++        self.n_records = 0
++        # (requested model, temperature sent, model reported by the provider)
++        self.observed_params: set[tuple[Any, Any, Any]] = set()
++        self._lock = threading.Lock()
++
++    @contextlib.contextmanager
++    def scope(self, call_type: Optional[str] = None, generation: Optional[int] = None) -> Iterator[None]:
++        prev = (self.call_type, self.generation)
++        if call_type is not None:
++            self.call_type = call_type
++        if generation is not None:
++            self.generation = generation
++        try:
++            yield
++        finally:
++            self.call_type, self.generation = prev
++
++    def write(self, **fields: Any) -> None:
++        record = {k: fields.get(k) for k in USAGE_FIELDS}
++        record.update(timestamp=datetime.now(timezone.utc).isoformat(), run_id=self.run_id,
++                      target_id=self.target_id)
++        with self._lock:
++            with open(self.path, "a", encoding="utf-8") as f:
++                f.write(json.dumps(record) + "\n")
++            self.n_records += 1
++
++
++_ACTIVE: Optional[UsageLog] = None
++
++
++def activate(log: UsageLog) -> UsageLog:
++    """Make `log` the destination of all LLM requests in this process."""
++    global _ACTIVE
++    _ACTIVE = log
++    return log
++
++
++def active_log() -> UsageLog:
++    if _ACTIVE is None:
++        raise RuntimeError("LLM request without an active usage log; call utils.llm_usage.activate() first")
++    return _ACTIVE
++
++
++def usage_scope(call_type: Optional[str] = None, generation: Optional[int] = None):
++    """Label the requests made inside the `with` block (call_type / generation)."""
++    return active_log().scope(call_type=call_type, generation=generation)
++
++
++def _is_retryable(exc: BaseException) -> bool:
++    # Same classes of failure the OpenAI SDK retries by default.
++    if isinstance(exc, openai.APIConnectionError):  # includes APITimeoutError
++        return True
++    if isinstance(exc, openai.APIStatusError):
++        return exc.status_code in (408, 409, 429) or exc.status_code >= 500
++    return False
++
++
++def _backoff_seconds(attempt: int, exc: BaseException) -> float:
++    response = getattr(exc, "response", None)
++    try:
++        retry_after = float(response.headers.get("retry-after")) if response is not None else None
++    except (TypeError, ValueError):
++        retry_after = None
++    if retry_after is not None and 0 < retry_after <= 60:
++        return retry_after
++    return min(0.5 * 2 ** attempt, 8.0) * (1 - 0.25 * _JITTER.random())
++
++
++def _usage_fields(result: Any) -> tuple[dict[str, Optional[int]], str, Optional[str]]:
++    message = result.generations[0].message if getattr(result, "generations", None) else None
++    usage = getattr(message, "usage_metadata", None)
++    response_model = (getattr(message, "response_metadata", None) or {}).get("model_name")
++    if not usage:
++        return {"prompt_tokens": None, "cached_prompt_tokens": None, "completion_tokens": None}, "missing", response_model
++    details = usage.get("input_token_details") or {}
++    return ({"prompt_tokens": usage.get("input_tokens"),
++             "cached_prompt_tokens": details.get("cache_read"),
++             "completion_tokens": usage.get("output_tokens")}, "provider", response_model)
++
++
++class LoggedChatOpenAI(ChatOpenAI):
++    """ChatOpenAI that logs one usage line per API request.
++
++    SDK-internal retries are disabled (max_retries=0) and performed here instead,
++    so every attempt -- including failed ones -- is a separate, logged request.
++    Streaming is disabled so all requests go through _generate.
++    """
++
++    max_retries: Optional[int] = 0
++    disable_streaming: Union[bool, Literal["tool_calling"]] = True
++    usage_call_type: Optional[str] = None   # fixed call_type for this model (e.g. "code_extract")
++    usage_max_retries: int = 2              # retries after the first attempt (config llm_max_retries)
++
++    def _sent_temperature(self, messages: Any, stop: Any, **kwargs: Any) -> Any:
++        try:
++            return self._get_request_payload(messages, stop=stop, **kwargs).get("temperature")
++        except Exception:
++            return self.temperature
++
++    def _generate(self, messages: Any, stop: Any = None, run_manager: Any = None, **kwargs: Any) -> Any:
++        log = active_log()
++        call_type = self.usage_call_type or log.call_type
++        temperature = self._sent_temperature(messages, stop, **kwargs)
++        attempt = 0
++        while True:
++            t0 = time.monotonic()
++            try:
++                result = super()._generate(messages, stop=stop, run_manager=run_manager, **kwargs)
++            except Exception as exc:
++                log.write(generation=log.generation, call_type=call_type, model=self.model_name,
++                          temperature=temperature, prompt_tokens=None, cached_prompt_tokens=None,
++                          completion_tokens=None, usage_source="missing", retry_index=attempt,
++                          outcome=f"error:{type(exc).__name__}",
++                          latency_ms=round((time.monotonic() - t0) * 1000))
++                if attempt < self.usage_max_retries and _is_retryable(exc):
++                    time.sleep(_backoff_seconds(attempt, exc))
++                    attempt += 1
++                    continue
++                raise
++            tokens, source, response_model = _usage_fields(result)
++            log.write(generation=log.generation, call_type=call_type, model=self.model_name,
++                      temperature=temperature, usage_source=source, retry_index=attempt, outcome="ok",
++                      latency_ms=round((time.monotonic() - t0) * 1000), **tokens)
++            log.observed_params.add((self.model_name, temperature, response_model))
++            return result
++
++    async def _agenerate(self, messages: Any, stop: Any = None, run_manager: Any = None, **kwargs: Any) -> Any:
++        # Route async calls through the logged sync path.
++        return await run_in_executor(None, self._generate, messages, stop, None, **kwargs)
+diff --git a/utils/run_manifest.py b/utils/run_manifest.py
+new file mode 100644
+index 0000000..b28397b
+--- /dev/null
++++ b/utils/run_manifest.py
+@@ -0,0 +1,110 @@
++"""run_manifest.json: everything needed to reconstruct one run (one target, one repetition).
++
++All environment facts are collected at runtime (git, docker); nothing is hard-coded.
++"""
++from __future__ import annotations
++
++import contextlib
++import hashlib
++import json
++import subprocess
++import time
++from datetime import datetime, timezone
++from pathlib import Path
++from typing import Any, Iterator, Optional
++
++BASE_IMAGES = ("gcr.io/oss-fuzz-base/base-builder", "gcr.io/oss-fuzz-base/base-runner")
++# Fields that legitimately differ between repetitions of the same experiment.
++_RUN_VARYING = ("seed", "repetition_index", "save_root")
++
++
++def now_iso() -> str:
++    return datetime.now(timezone.utc).isoformat()
++
++
++def derive_seed(base_seed: int, target_id: str) -> int:
++    """Per-target seed: stable across machines and Python processes."""
++    return int(hashlib.sha256(f"{base_seed}:{target_id}".encode()).hexdigest()[:8], 16)
++
++
++def config_hash(snapshot: dict[str, Any]) -> str:
++    """sha256 of the redacted config without run-varying fields (seed, repetition, save_root)."""
++    def strip(d: dict[str, Any]) -> dict[str, Any]:
++        return {k: v for k, v in d.items() if k not in _RUN_VARYING}
++    stable = strip(snapshot)
++    if isinstance(stable.get("config"), dict):
++        stable["config"] = strip(stable["config"])
++    return hashlib.sha256(json.dumps(stable, sort_keys=True, default=str).encode()).hexdigest()
++
++
++def git_info(path: Path) -> dict[str, Any]:
++    def git(*args: str) -> str:
++        return subprocess.run(["git", "-C", str(path), *args], capture_output=True, text=True,
++                              check=True, timeout=30).stdout.strip()
++    try:
++        porcelain = git("status", "--porcelain")
++        return {"commit": git("rev-parse", "HEAD"), "dirty": bool(porcelain),
++                "n_changed_paths": len(porcelain.splitlines()) if porcelain else 0}
++    except Exception as exc:
++        return {"commit": None, "dirty": None, "error": f"{type(exc).__name__}: {exc}"}
++
++
++def docker_image_info(names: tuple[str, ...] = BASE_IMAGES) -> dict[str, Any]:
++    out: dict[str, Any] = {}
++    try:
++        import docker
++        client = docker.from_env()
++    except Exception as exc:
++        return {n: {"error": f"{type(exc).__name__}: {exc}"} for n in names}
++    for name in names:
++        try:
++            image = client.images.get(name)
++            out[name] = {"id": image.id, "repo_digests": image.attrs.get("RepoDigests", []),
++                         "created": image.attrs.get("Created")}
++        except Exception as exc:
++            out[name] = {"id": None, "repo_digests": [], "error": f"{type(exc).__name__}: {exc}"}
++    return out
++
++
++class RunManifest:
++    """Incrementally written manifest; rewritten after every update so a crash leaves a record."""
++
++    def __init__(self, path: Path, **fields: Any) -> None:
++        self.path = Path(path)
++        self.data: dict[str, Any] = {"status": "running", "start_time": now_iso(), "end_time": None,
++                                     "phases": {}, **fields}
++        self.write()
++
++    def update(self, **fields: Any) -> None:
++        self.data.update(fields)
++        self.write()
++
++    @contextlib.contextmanager
++    def phase(self, name: str) -> Iterator[None]:
++        """Record wall-clock start/end/seconds of a pipeline phase."""
++        entry: dict[str, Any] = {"start": now_iso(), "end": None, "seconds": None}
++        self.data["phases"][name] = entry
++        t0 = time.monotonic()
++        try:
++            yield
++        finally:
++            entry["end"] = now_iso()
++            entry["seconds"] = round(time.monotonic() - t0, 3)
++            self.write()
++
++    def finish(self, status: str, **fields: Any) -> None:
++        self.data.update(status=status, end_time=now_iso(), **fields)
++        self.write()
++
++    def write(self) -> None:
++        self.path.parent.mkdir(parents=True, exist_ok=True)
++        tmp = self.path.with_suffix(".json.tmp")
++        tmp.write_text(json.dumps(self.data, indent=2, default=str))
++        tmp.replace(self.path)
++
++
++def load_manifest(path: Path) -> Optional[dict[str, Any]]:
++    try:
++        return json.loads(Path(path).read_text())
++    except (OSError, json.JSONDecodeError):
++        return None

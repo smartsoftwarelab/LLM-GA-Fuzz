@@ -6,19 +6,22 @@ import os
 import random
 import shutil
 import traceback
+import uuid
 from pathlib import Path
 from typing import Optional
 
-from langchain_openai import ChatOpenAI
 from langchain_core.language_models import BaseChatModel
 
 from bench_cfg import BenchConfig
 from constants import CompileResults, LanguageType, PROJECT_PATH, ValResult
 from utils.misc import extract_name
+from utils.llm_usage import HTTP_AUDIT_PATH, LoggedChatOpenAI, UsageLog, activate
+from utils.run_manifest import RunManifest, config_hash, derive_seed, docker_image_info, git_info
 
 from agent.gen import ISSTAFuzzer
 from agent.modules.fuzzenv import FuzzENV
 from agent.modules.compilation import CompilerWraper
+from agent.modules import fitness as fitness_mod
 from agent.modules.fitness import (
     FitnessScores, extract_coverage_from_log, prompt_value,
     STATUS_COMPILE_FAILED, STATUS_EVAL_ERROR, STATUS_EVAL_SKIPPED,
@@ -30,7 +33,7 @@ from agent.modules.population import (
 from agent.modules.variation import (
     CrossoverOperator, MutationOperator, MUTATION_STRATEGIES,
 )
-from agent_tools.fuzz_tools.run_fuzzer import FuzzerRunner
+from agent_tools.fuzz_tools.run_fuzzer import FuzzerRunner, LIBFUZZER_SEED
 
 
 # Default evolutionary hyper-parameters (overridden via YAML config)
@@ -131,8 +134,19 @@ class EvoISSTAFuzzer:
             / "evolution"
         )
         self.evo_dir.mkdir(parents=True, exist_ok=True)
+        self.target_dir: Path = self.evo_dir.parent   # run1_*/ initial runs, evolution/, manifest, usage log
 
         self.logger = self._setup_logger()
+
+        # Run identity, seeding and per-request LLM usage log
+        self.target_id = f"{project_name}::{function_signature}"
+        self.run_id    = f"{uuid.uuid4().hex[:12]}"
+        self.seed      = derive_seed(benchcfg.seed, self.target_id) if benchcfg.seed is not None else None
+        if self.seed is not None:
+            random.seed(self.seed)
+        self.usage_log = activate(UsageLog(self.target_dir / "usage_log.jsonl", self.run_id, self.target_id))
+        self.initial_attempts: list[dict] = []
+        self.manifest: Optional[RunManifest] = None
         self.archive = Archive(capacity=self.ecfg["evo_archive_capacity"])
         self.generation_stats: list[dict] = []
 
@@ -172,7 +186,7 @@ class EvoISSTAFuzzer:
     def _load_llm(self) -> BaseChatModel:
         cfg = self.benchcfg
         if cfg.model_name == "CoreStableLLM":
-            return ChatOpenAI(
+            return LoggedChatOpenAI(usage_max_retries=cfg.llm_max_retries,
                 api_key    = cfg.llm_api_key,  # type: ignore
                 base_url   = cfg.base_url,
                 model      = "CoreStableLLM",
@@ -180,16 +194,16 @@ class EvoISSTAFuzzer:
             )
         if cfg.model_name.startswith("gpt"):
             if "gpt-5-mini" in cfg.model_name:
-                return ChatOpenAI(
+                return LoggedChatOpenAI(usage_max_retries=cfg.llm_max_retries,
                     api_key = cfg.llm_api_key,  # type: ignore
                     model   = cfg.model_name,
                 )
-            return ChatOpenAI(
+            return LoggedChatOpenAI(usage_max_retries=cfg.llm_max_retries,
                 api_key    = cfg.llm_api_key,  # type: ignore
                 model      = cfg.model_name,
                 temperature= cfg.temperature,
             )
-        return ChatOpenAI(
+        return LoggedChatOpenAI(usage_max_retries=cfg.llm_max_retries,
             api_key    = os.getenv("OPENROUTER_API_KEY", ""),
             base_url   = "https://openrouter.ai/api/v1",
             model      = cfg.model_name,
@@ -197,8 +211,42 @@ class EvoISSTAFuzzer:
         )
 
     
+    # Run manifest (static part, collected at runtime)
+
+
+    def _manifest_static(self) -> dict:
+        cfg = self.benchcfg
+        snapshot = cfg.snapshot_dict()
+        return {
+            "run_id":           self.run_id,
+            "target_id":        self.target_id,
+            "project":          self.project_name,
+            "function":         self.function_signature,
+            "repetition_index": cfg.repetition_index,
+            "seed": {"base_seed": cfg.seed, "seed_source": cfg.seed_source, "target_seed": self.seed,
+                     "derivation": "int(sha256(f'{base_seed}:{target_id}')[:8], 16) -> random.seed",
+                     "libfuzzer_seed": LIBFUZZER_SEED},
+            "config_hash":      config_hash(snapshot),
+            "config":           snapshot,
+            "code":             git_info(Path(PROJECT_PATH)),
+            "oss_fuzz":         git_info(cfg.oss_fuzz_dir),
+            "docker_images_start": docker_image_info(),
+            "llm": {"model_name": cfg.model_name, "base_url": cfg.base_url or None,
+                    "temperature_config": cfg.temperature, "reasoning": cfg.reasoning,
+                    "llm_max_retries": cfg.llm_max_retries, "http_audit_log": HTTP_AUDIT_PATH,
+                    "note": "per-request model/temperature actually sent: usage_log.jsonl and llm_observed_params"},
+            "evolution": dict(self.ecfg),
+            "fitness": {"W_COVERAGE": fitness_mod.W_COVERAGE, "W_FEATURES": fitness_mod.W_FEATURES,
+                        "W_EXEC": fitness_mod.W_EXEC, "W_STABILITY": fitness_mod.W_STABILITY,
+                        "CRASH_BONUS": fitness_mod.CRASH_BONUS, "NORM_COVERAGE": fitness_mod.NORM_COVERAGE,
+                        "NORM_FEATURES": fitness_mod.NORM_FEATURES, "NORM_EXEC": fitness_mod.NORM_EXEC},
+            "artifacts": {"target_dir": str(self.target_dir), "evolution_dir": str(self.evo_dir),
+                          "usage_log": str(self.usage_log.path),
+                          "generation_files": "evolution/gen_XXX/<idx>_<genome_id>.json (code + fitness)"},
+        }
+
     # Shared evaluation environment
-    
+
 
     def _get_eval_env(self) -> _EvalEnv:
         """Lazily create and cache the shared evaluation environment."""
@@ -253,11 +301,17 @@ class EvoISSTAFuzzer:
             f"=== Phase 1: generating initial population ({pop_size} harnesses) ==="
         )
         population: list[HarnessGenome] = []
+        self.usage_log.call_type, self.usage_log.generation = "initial_generation", 0
 
         for i in range(pop_size):
             self.logger.info(
                 f"Initial harness {i + 1}/{pop_size}..."
             )
+            # one record per attempt, so lost harnesses are explicit in the manifest
+            attempt: dict = {"index": i + 1, "status": None, "genome_id": None, "chars": None,
+                             "save_dir": None, "error": None}
+            self.initial_attempts.append(attempt)
+            n_before = len(population)
             base: Optional[ISSTAFuzzer] = None
             try:
                 base = ISSTAFuzzer(
@@ -266,8 +320,11 @@ class EvoISSTAFuzzer:
                     self.project_name,
                     n_run=i + 1,
                 )
+                attempt["save_dir"] = str(base.save_dir)
 
                 if base.early_exit_flag:
+                    # NOT a fresh generation: reuses a harness from an earlier run in this save_root
+                    attempt["status"] = "CACHED"
                     # Workspace already exists — load cached harness
                     harness_file = base.save_dir / "harness.txt"
                     if harness_file.exists():
@@ -292,21 +349,31 @@ class EvoISSTAFuzzer:
                         self.logger.info(
                             f"Generated initial harness {i + 1} ({len(code)} chars)"
                         )
+                        attempt["status"] = "OK"
                     else:
                         self.logger.warning(
                             f"Harness {i + 1} generated but code is empty."
                         )
+                        attempt["status"] = "EMPTY_HARNESS"
                 else:
                     self.logger.warning(
                         f"Harness {i + 1}: harness.txt not found."
                     )
+                    attempt["status"] = "NO_HARNESS_FILE"
 
             except Exception as exc:
                 self.logger.error(
                     f"Failed to generate initial harness {i + 1}: {exc}"
                 )
                 traceback.print_exc()
+                attempt["status"] = "EXCEPTION"
+                attempt["error"] = f"{type(exc).__name__}: {exc}"[:500]
             finally:
+                if len(population) > n_before:
+                    attempt["genome_id"] = population[-1].genome_id
+                    attempt["chars"] = len(population[-1].code)
+                elif attempt["status"] == "CACHED":
+                    attempt["status"] = "CACHED_EMPTY"
                 if base and not base.early_exit_flag:
                     try:
                         base.clean_workspace()
@@ -543,6 +610,7 @@ class EvoISSTAFuzzer:
         tournament_k     = self.ecfg["evo_tournament_k"]
 
         for gen in range(1, generations + 1):
+            self.usage_log.call_type, self.usage_log.generation = None, gen
             self.logger.info(f"\n{'─' * 50}")
             self.logger.info(f"  Generation {gen}/{generations}")
             self.logger.info(f"{'─' * 50}")
@@ -685,34 +753,55 @@ class EvoISSTAFuzzer:
         self.logger.info(f"Config: {self.ecfg}")
         self.logger.info("=" * 60)
 
+        self.manifest = RunManifest(self.target_dir / "run_manifest.json", **self._manifest_static())
+        status = "failed"
+        best: list[HarnessGenome] = []
         try:
             # Phase 0: API context (used in variation prompts)
-            api_context = self._get_api_context()
+            with self.manifest.phase("api_context"):
+                api_context = self._get_api_context()
 
             # Phase 1: Initial population
-            population = self._generate_initial_population()
+            with self.manifest.phase("initial_generation"):
+                population = self._generate_initial_population()
+            self.manifest.update(initial_attempts=self.initial_attempts)
             if not population:
                 self.logger.error("No harnesses generated in phase 1. Aborting.")
+                status = "aborted_no_initial_population"
                 return []
 
             # Phase 2: Evaluate initial population
             self.logger.info("=== Phase 2: Evaluating initial population ===")
-            population = self._evaluate_population(population, generation=0)
+            with self.manifest.phase("initial_evaluation"):
+                population = self._evaluate_population(population, generation=0)
 
-            # Seed the archive with the evaluated initial population
-            self.archive.update(population)
-            self._save_generation(0, population)
+                # Seed the archive with the evaluated initial population
+                self.archive.update(population)
+                self._save_generation(0, population)
 
             # Phase 3: Evolution
             self.logger.info("=== Phase 3: Evolutionary loop ===")
-            self._evolve(population, api_context)
+            with self.manifest.phase("evolution"):
+                self._evolve(population, api_context)
 
             # Phase 4: Final results
-            best = self.archive.best(5)
-            self._save_final(best)
+            with self.manifest.phase("finalize"):
+                best = self.archive.best(5)
+                self._save_final(best)
+            status = "completed"
             return best
 
         finally:
+            self.manifest.finish(
+                status,
+                initial_attempts=self.initial_attempts,
+                generations_run=len(self.generation_stats),
+                best_genome_ids=[g.genome_id for g in best],
+                llm_requests_logged=self.usage_log.n_records,
+                llm_observed_params=[{"model": m, "temperature_sent": t, "response_model": r}
+                                     for m, t, r in sorted(self.usage_log.observed_params, key=str)],
+                docker_images_end=docker_image_info(),
+            )
             # Clean up the shared evaluation environment
             if self._eval_env and not self._eval_env.early_exit_flag:
                 try:

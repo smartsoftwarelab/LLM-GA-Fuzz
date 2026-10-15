@@ -69,6 +69,7 @@ class BenchConfig:
         if not self.llm_api_key:
             sys.exit("ERROR: environment variable OPENAI_API_KEY is not set (it is also the key used "
                      "for base_url endpoints such as CoreStableLLM). Set it with: export OPENAI_API_KEY=<key>")
+        self.llm_max_retries = self.config.get('llm_max_retries', 2)  # retries per request after the first attempt
         self.reasoning = self.config.get('reasoning', False)
         self.temperature = self.config.get('temperature', 0.7)
         self.run_time = self.config.get('run_time', 1)
@@ -107,6 +108,11 @@ class BenchConfig:
             sys.exit(f"ERROR: coverage_metric must be branches|regions|lines|functions, got {self.coverage_metric!r}")
         self.coverage_input_timeout = self.config.get('coverage_input_timeout', 25)    # seconds per replayed input
         self.coverage_total_timeout = self.config.get('coverage_total_timeout', 3600)  # seconds for the whole replay
+
+        # provenance of one run (recorded in run_manifest.json); CLI flags may override
+        self.seed = self.config.get('seed', None)                 # base seed; None -> generated at start
+        self.seed_source = "config" if self.seed is not None else None
+        self.repetition_index = self.config.get('repetition_index', 0)
 
         # for extracting all functions from project (skip generation)
         self.extract_all_functions = self.config.get('extract_all_functions', False)

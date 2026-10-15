@@ -1,0 +1,87 @@
+# Paths
+
+oss_fuzz_dir: /home/ubuntu/fuzzing_workspace/oss-fuzz/
+save_root: outputs/p03_smoke/
+cache_root: /home/ubuntu/fuzzing_workspace/cache/
+bench_dir: /home/ubuntu/fuzzing_workspace/LLM-reasoning-agents/benchmark-sets/function_0
+
+
+# LLM Settings
+# Slightly higher temperature than the base agent to encourage diversity.
+# model_name:        "CoreStableLLM"
+# base_url:          "https://llm-test.ssl.qom.ac.ir/llm/v1/"
+model_name: "gpt-5-mini"
+base_url: ""
+temperature:       0.85
+reasoning:         false
+model_token_limit: 8096
+usage_token_limit: 1000
+
+# HarnessAgent Base Settings
+# These control the initial-population generation (Phase 1).
+# They mirror the standard ISSTAFuzzer configuration.
+
+run_time:              3       # minutes for full fuzz run (NOT used during evo eval)
+max_fix:               5       # LLM fix iterations during initial generation
+max_tool_call:         30      # tool calls per fix iteration
+fixing_mode:           "agent" # raw | issta | oss_fuzz | agent
+header_mode:           "static" # static | all | agent | oss_fuzz | no
+semantic_mode:         "both"  # both | eval | none
+n_examples:            3
+example_mode:          "rank"  # rank | random
+example_source:        "project"
+definition_flag:       false
+driver_flag:           false
+compile_enhance:       false
+memory_flag:           false
+use_cache_harness_pairs: false #true
+clear_msg_flag:        true
+ignore_crashes:        true    # let evolutionary evaluation continue past crashes
+no_log:                false
+
+# Evolutionary Algorithm Settings
+# Population
+evo_population_size:   2       # number of initial harnesses (Phase 1 runs)
+
+# Evolution loop
+evo_generations:       1       # total generations
+evo_offspring_per_gen: 2       # new harnesses created per generation
+
+# Genetic operator probabilities
+evo_crossover_prob:    0.40    # P(crossover) — rest is P(mutation)
+
+# Selection
+evo_tournament_k:      3       # tournament pool size
+
+# Archive
+evo_archive_capacity:  20      # max genomes stored in diversity archive
+
+# Elitism
+evo_elite_count:       2       # elites copied unchanged to next generation
+
+# Fitness evaluation  (short fuzz trial per offspring)
+evo_fuzz_trial_seconds: 60     # seconds (1 min = fast evaluation)
+
+                                # increase to 120-300 for more accurate fitness
+
+# Early stopping
+evo_convergence_window: 3      # stop if archive best-cov unchanged for N gens
+
+# Parallelism
+# Parallelism at the function level (one EvoISSTAFuzzer per function).
+# Within each function, evolution is serial.
+num_processes: 1        # parallel functions
+
+
+# Benchmark Targets
+# Leave empty [] to run all projects / functions found in bench_dir.
+project_name:        [ada-url]   # e.g. ["libxml2", "cjson"]
+function_signatures: ["ada_url ada_parse_with_base(const char *, size_t, const char *, size_t)"]   # e.g. ["int xmlXIncludeProcessTreeFlags(xmlNodePtr, int)"]
+funcs_per_project:   1    # max functions per project (0 = unlimited)
+language:            "C" 
+
+
+# PATCH 3 smoke run (provenance + usage logging)
+seed:             12345
+repetition_index: 0
+llm_max_retries:  2

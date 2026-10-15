@@ -11,6 +11,9 @@ from agent_tools.results_analysis import run_agent_res
 from bench_cfg import BenchConfig
 import traceback  # Add this at the top
 import json
+import uuid
+from pathlib import Path
+from utils.llm_usage import UsageLog, activate
 from constants import LanguageType
 
 class Runner:
@@ -70,6 +73,8 @@ class Runner:
         """Run the fuzzer on a single function."""
 
         agent_fuzzer = ISSTAFuzzer(config, function_signature, project_name, n_run=n_run)
+        activate(UsageLog(Path(agent_fuzzer.save_dir) / "usage_log.jsonl", uuid.uuid4().hex[:12],
+                          f"{project_name}::{function_signature}"))
         try:
         # Your main logic here
             graph = agent_fuzzer.build_graph()

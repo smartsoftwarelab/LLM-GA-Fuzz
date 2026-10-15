@@ -1,4 +1,4 @@
-from langchain_openai import ChatOpenAI
+from utils.llm_usage import LoggedChatOpenAI
 from constants import PROJECT_PATH
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -14,12 +14,12 @@ class AnswerStruct(BaseModel):
 
 
 class LLMSelector:
-    def __init__(self, model_name: str):
+    def __init__(self, model_name: str, max_retries: int = 2):
         self.name = "LLM"
         if model_name.startswith("gpt"):
-            llm = ChatOpenAI(model=model_name)
+            llm = LoggedChatOpenAI(model=model_name, usage_call_type="example_selection", usage_max_retries=max_retries)
         else:
-            llm = ChatOpenAI(
+            llm = LoggedChatOpenAI(usage_call_type="example_selection", usage_max_retries=max_retries,
                 api_key=os.getenv("OPENROUTER_API_KEY", ""), # type: ignore
                 base_url="https://openrouter.ai/api/v1",
                 model=model_name,
@@ -58,7 +58,8 @@ class LLMSelector:
                 return 0
         
 
-def cache_example_selection(json_file: Path, function_name:str, project_name:str,   llm_name: str = "gpt-4.1") -> list[dict[str, Any]]:
+def cache_example_selection(json_file: Path, function_name:str, project_name:str,   llm_name: str = "gpt-4.1",
+                            max_retries: int = 2) -> list[dict[str, Any]]:
     """Cache the example selection results."""
     # 
     llm_norm = llm_name.replace("/", "_")
@@ -77,7 +78,7 @@ def cache_example_selection(json_file: Path, function_name:str, project_name:str
         data = f.read()
         json_data = json.loads(data)
     # add new key-value pair to indicate the example 
-    llm_selector = LLMSelector(llm_name)
+    llm_selector = LLMSelector(llm_name, max_retries)
     # a roughly 1000 tokens limit for the source code
     enc = tiktoken.encoding_for_model("gpt-4o")
     res_list:list[dict[str, Any]] = []            

@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import secrets
 import signal
 import sys
 import time
@@ -50,7 +51,32 @@ def _parse_args() -> argparse.Namespace:
         default=None,
         help="Override: number of parallel processes (default: from config)",
     )
+    p.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Override: base seed (default: config 'seed'; generated and recorded if unset)",
+    )
+    p.add_argument(
+        "--repetition",
+        type=int,
+        default=None,
+        help="Override: repetition index recorded in run_manifest.json (default: config 'repetition_index')",
+    )
     return p.parse_args()
+
+
+def _finalize_run_config(cfg: BenchConfig, seed: int | None, repetition: int | None) -> None:
+    """Apply CLI overrides, fix the base seed, and write the redacted config snapshot."""
+    if seed is not None:
+        cfg.seed, cfg.seed_source = seed, "cli"
+    if cfg.seed is None:
+        cfg.seed, cfg.seed_source = secrets.randbelow(2**31), "generated"
+    if repetition is not None:
+        cfg.repetition_index = repetition
+    cfg.save_root.mkdir(parents=True, exist_ok=True)
+    cfg.write_snapshot(cfg.save_root / f"config_rep{cfg.repetition_index}.yaml")
+    print(f"[EvoRunner] repetition={cfg.repetition_index} base_seed={cfg.seed} ({cfg.seed_source})")
 
 
 # Single-function runner (designed to be picklable for multiprocessing)
@@ -220,6 +246,7 @@ def main() -> None:
 
     if args.function and args.project:
         # Single-function mode
+        _finalize_run_config(cfg, args.seed, args.repetition)
         _run_one(cfg, args.function, args.project, resume=args.resume)
     else:
         # Batch mode
@@ -228,6 +255,7 @@ def main() -> None:
             processes = args.processes,
             resume    = args.resume,
         )
+        _finalize_run_config(runner.cfg, args.seed, args.repetition)
         runner.run()
 
 
