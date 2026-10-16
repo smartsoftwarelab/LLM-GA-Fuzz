@@ -1,0 +1,65 @@
+# Campaign template (PATCH 6). run_campaign.py fills save_root, project_name,
+# function_signatures, language, seed and repetition_index per run.
+oss_fuzz_dir: /home/ubuntu/fuzzing_workspace/oss-fuzz/
+save_root: outputs/campaign/
+cache_root: /home/ubuntu/fuzzing_workspace/cache/
+bench_dir: /home/ubuntu/fuzzing_workspace/LLM-reasoning-agents/benchmark-sets/function_0
+
+# LLM (temperature is not sent for gpt-5-mini; recorded in the manifest)
+model_name: "gpt-5-mini"
+base_url: ""
+temperature: 1
+reasoning: false
+model_token_limit: 8096
+usage_token_limit: 1000
+llm_max_retries: 2
+
+# Initial population (HarnessAgent-style generation)
+run_time: 1                 # minutes of validation fuzzing per generated harness
+max_fix: 5
+max_tool_call: 30
+fixing_mode: "agent"
+header_mode: "static"
+semantic_mode: "both"
+n_examples: 3
+example_mode: "rank"        # example ranking cached in cache_root = shared preprocessing (manifest sha256)
+example_source: "project"
+definition_flag: false
+driver_flag: false
+compile_enhance: false
+memory_flag: false
+use_cache_harness_pairs: false
+clear_msg_flag: true
+ignore_crashes: true
+no_log: false
+
+# Evolution (reduced for the 4-core / 3 GB server; see campaign plan)
+evo_population_size: 5
+evo_generations: 5
+evo_offspring_per_gen: 4
+evo_crossover_prob: 0.40
+evo_tournament_k: 3
+evo_archive_capacity: 20
+evo_elite_count: 2
+evo_fuzz_trial_seconds: 60
+evo_convergence_window: 3
+
+# Fitness (PATCH 4/5)
+fitness_normalization: "pool_max"
+crash_bonus: 0.60
+rrf_k: 60
+crash_repro_max: 3
+strategy_selection: "profile"
+strategy_priority_weight: 3.0
+
+# Toolchain + reported coverage
+oss_fuzz_pull_images: false
+coverage_metric: "branches"
+coverage_input_timeout: 25
+coverage_total_timeout: 3600
+
+num_processes: 1
+project_name: []
+function_signatures: []
+funcs_per_project: 1
+language: "CPP"

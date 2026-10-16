@@ -1,0 +1,598 @@
+diff --git a/cfg/campaign/campaign.yaml b/cfg/campaign/campaign.yaml
+new file mode 100644
+index 0000000..6e66d89
+--- /dev/null
++++ b/cfg/campaign/campaign.yaml
+@@ -0,0 +1,65 @@
++# Campaign template (PATCH 6). run_campaign.py fills save_root, project_name,
++# function_signatures, language, seed and repetition_index per run.
++oss_fuzz_dir: /home/ubuntu/fuzzing_workspace/oss-fuzz/
++save_root: outputs/campaign/
++cache_root: /home/ubuntu/fuzzing_workspace/cache/
++bench_dir: /home/ubuntu/fuzzing_workspace/LLM-reasoning-agents/benchmark-sets/function_0
++
++# LLM (temperature is not sent for gpt-5-mini; recorded in the manifest)
++model_name: "gpt-5-mini"
++base_url: ""
++temperature: 1
++reasoning: false
++model_token_limit: 8096
++usage_token_limit: 1000
++llm_max_retries: 2
++
++# Initial population (HarnessAgent-style generation)
++run_time: 1                 # minutes of validation fuzzing per generated harness
++max_fix: 5
++max_tool_call: 30
++fixing_mode: "agent"
++header_mode: "static"
++semantic_mode: "both"
++n_examples: 3
++example_mode: "rank"        # example ranking cached in cache_root = shared preprocessing (manifest sha256)
++example_source: "project"
++definition_flag: false
++driver_flag: false
++compile_enhance: false
++memory_flag: false
++use_cache_harness_pairs: false
++clear_msg_flag: true
++ignore_crashes: true
++no_log: false
++
++# Evolution (reduced for the 4-core / 3 GB server; see campaign plan)
++evo_population_size: 5
++evo_generations: 5
++evo_offspring_per_gen: 4
++evo_crossover_prob: 0.40
++evo_tournament_k: 3
++evo_archive_capacity: 20
++evo_elite_count: 2
++evo_fuzz_trial_seconds: 60
++evo_convergence_window: 3
++
++# Fitness (PATCH 4/5)
++fitness_normalization: "pool_max"
++crash_bonus: 0.60
++rrf_k: 60
++crash_repro_max: 3
++strategy_selection: "profile"
++strategy_priority_weight: 3.0
++
++# Toolchain + reported coverage
++oss_fuzz_pull_images: false
++coverage_metric: "branches"
++coverage_input_timeout: 25
++coverage_total_timeout: 3600
++
++num_processes: 1
++project_name: []
++function_signatures: []
++funcs_per_project: 1
++language: "CPP"
+diff --git a/scripts/campaign/check_campaign.py b/scripts/campaign/check_campaign.py
+new file mode 100644
+index 0000000..89a0082
+--- /dev/null
++++ b/scripts/campaign/check_campaign.py
+@@ -0,0 +1,67 @@
++"""Gates (run on the first finished runs before letting the campaign continue, and again at the end).
++
++G1/G2 hand-derived coverage reference passed, deterministic (scripts/p02_coverage_reference.sh output)
++G3 usage_log.jsonl lines == HTTP requests seen by httpx (per run audit file)
++G4 every generated harness saved and non-empty; lost initial attempts listed
++G5 no API key in any output
++G6 no run aborted (recursion limit or otherwise)
++G7 one clean code commit across runs; G8 one base-image id across runs
++Usage: python scripts/campaign/check_campaign.py [--out outputs/campaign] [--reference campaign/preflight_reference.txt]
++"""
++import argparse
++import json
++import sys
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
++from utils.campaign import count_http_posts, files_with_secrets  # noqa: E402
++
++ap = argparse.ArgumentParser()
++ap.add_argument("--out", default="outputs/campaign")
++ap.add_argument("--reference", default="campaign/preflight_reference.txt")
++args = ap.parse_args()
++out = Path(args.out)
++
++gates: list[tuple[str, bool, str]] = []
++ref = Path(args.reference).read_text() if Path(args.reference).exists() else ""
++gates.append(("G1 coverage == hand-derived reference", "PASS  A branches == 4/6" in ref and "OVERALL: PASS" in ref, args.reference))
++gates.append(("G2 three identical measurements", "PASS  A determinism" in ref, args.reference))
++
++manifests = sorted(out.glob("rep*/*/*/run_manifest.json"))
++commits, images, lost, aborted, g3_bad, g4_bad = set(), set(), [], [], [], []
++for mp in manifests:
++    m = json.loads(mp.read_text())
++    d = mp.parent
++    key = f"{m['project']}_rep{m['repetition_index']}"
++    commits.add((m["code"].get("commit"), m["code"].get("dirty")))
++    images.add(json.dumps({k: v.get("id") for k, v in m.get("docker_images_end", {}).items()}, sort_keys=True))
++    if m["status"] != "completed":
++        aborted.append(f"{key}:{m['status']}")
++    for a in m.get("initial_attempts", []):
++        if a["status"] != "OK":
++            lost.append(f"{key}#{a['index']}:{a['status']}:{(a.get('error') or '')[:60]}")
++    lines = sum(1 for _ in (d / "usage_log.jsonl").open()) if (d / "usage_log.jsonl").exists() else 0
++    posts = count_http_posts(out / "audit" / f"{key}.log")
++    if posts != lines:
++        g3_bad.append(f"{key}: usage={lines} http={posts}")
++    for g in d.glob("evolution/gen_*/*.json"):
++        gj = json.loads(g.read_text(encoding="utf-8"))
++        if not gj.get("code", "").strip():
++            g4_bad.append(str(g))
++
++gates.append(("G3 usage lines == HTTP requests", bool(manifests) and not g3_bad, "; ".join(g3_bad) or f"{len(manifests)} runs"))
++gates.append(("G4 harnesses saved and non-empty", not g4_bad, f"empty={len(g4_bad)} lost_initial_attempts={len(lost)}"))
++secrets = files_with_secrets(out)
++gates.append(("G5 no API key in outputs", not secrets, "; ".join(secrets[:5])))
++gates.append(("G6 no aborted run", not aborted, "; ".join(aborted)))
++gates.append(("G7 single clean code commit", len(commits) == 1 and not next(iter(commits))[1] if commits else False, str(commits)))
++gates.append(("G8 single base-image id", len(images) == 1, f"{len(images)} distinct"))
++
++for name, ok, detail in gates:
++    print(f"{'PASS' if ok else 'FAIL'}  {name}  [{detail}]")
++if lost:
++    print("lost initial attempts (recorded, not fatal):")
++    for x in lost:
++        print("  " + x)
++print(f"runs checked: {len(manifests)}")
++print("OVERALL:", "PASS" if all(ok for _, ok, _ in gates) else "FAIL")
+diff --git a/scripts/campaign/eval_run.py b/scripts/campaign/eval_run.py
+new file mode 100644
+index 0000000..64fb434
+--- /dev/null
++++ b/scripts/campaign/eval_run.py
+@@ -0,0 +1,56 @@
++"""Step 4 (per run): llvm-cov branch coverage of the best generation-0 harness (non-evolutionary
++baseline) and the best final harness, each fuzzed for the same time with the same seed.
++
++Usage: python scripts/campaign/eval_run.py <target_dir> --cfg <run config.yaml> [--minutes 5]
++Writes <target_dir>/eval/eval_results.json
++"""
++import argparse
++import json
++import sys
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
++from agent.eval import process_single_result  # noqa: E402
++from bench_cfg import BenchConfig  # noqa: E402
++from utils.campaign import pick_final_best, pick_gen0_best  # noqa: E402
++
++ap = argparse.ArgumentParser()
++ap.add_argument("target_dir")
++ap.add_argument("--cfg", required=True)
++ap.add_argument("--minutes", type=int, default=5)
++args = ap.parse_args()
++
++target_dir = Path(args.target_dir).resolve()
++manifest = json.loads((target_dir / "run_manifest.json").read_text())
++fuzzer_info = next(iter(sorted(target_dir.glob("run[0-9]*_*/fuzzer_info.json"))), None)
++if manifest.get("status") != "completed" or fuzzer_info is None:
++    sys.exit(f"cannot evaluate {target_dir}: status={manifest.get('status')} fuzzer_info={fuzzer_info}")
++
++results = {}
++first_by_genome = {}
++for label, genome in (("gen0_best", pick_gen0_best(target_dir)), ("final_best", pick_final_best(target_dir))):
++    if genome is None:
++        results[label] = {"genome_id": None, "coverage": {"status": "TOOL_FAILED", "error_message": "no genome"}}
++        continue
++    if genome["genome_id"] in first_by_genome:          # evolution kept the gen-0 harness: same code
++        results[label] = {**results[first_by_genome[genome["genome_id"]]], "reused_from": first_by_genome[genome["genome_id"]]}
++        continue
++    work = target_dir / "eval" / label / "work"
++    work.mkdir(parents=True, exist_ok=True)
++    (work / "harness.txt").write_text(genome["code"], encoding="utf-8")
++    (work / "function.txt").write_text(manifest["function"], encoding="utf-8")
++    (work / "fuzzer_info.json").write_text(fuzzer_info.read_text())
++    cfg = BenchConfig(args.cfg)
++    cfg.save_root = target_dir / "eval" / label
++    cfg.run_time = args.minutes
++    _, _, record = process_single_result((manifest["project"], manifest["function"], work, cfg))
++    results[label] = {"genome_id": genome["genome_id"], "generation": genome["generation"],
++                      "fitness_total": genome["fitness"]["total"], **record}
++    first_by_genome[genome["genome_id"]] = label
++
++out = target_dir / "eval" / "eval_results.json"
++out.parent.mkdir(parents=True, exist_ok=True)
++out.write_text(json.dumps({"fuzz_minutes": args.minutes, "results": results}, indent=2))
++for label, r in results.items():
++    c = r.get("coverage", {})
++    print(f"{label}: genome={r.get('genome_id')} status={c.get('status')} {c.get('metric')}={c.get('covered')}/{c.get('total')}")
+diff --git a/scripts/campaign/run_campaign.py b/scripts/campaign/run_campaign.py
+new file mode 100644
+index 0000000..a1240ab
+--- /dev/null
++++ b/scripts/campaign/run_campaign.py
+@@ -0,0 +1,95 @@
++"""Step 3: run the campaign, one run at a time (4-core / 3 GB server).
++
++Order is target-major (all repetitions of a target before the next target), so if time runs
++out the campaign loses targets, never repetitions. Resumable: completed runs are skipped.
++Create <out>/STOP to stop cleanly after the current run.
++
++Usage: setsid nohup python scripts/campaign/run_campaign.py > outputs/campaign_launcher.log 2>&1 < /dev/null &
++Keep logs under outputs/ (git-ignored) so the code tree stays clean (gate G7).
++"""
++import argparse
++import json
++import os
++import shutil
++import subprocess as sp
++import sys
++import time
++from datetime import datetime, timezone
++from pathlib import Path
++
++import yaml
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
++from utils.campaign import LANG_LABEL, find_target_dir, manifest_status, rep_seed, run_key  # noqa: E402
++
++ap = argparse.ArgumentParser()
++ap.add_argument("--targets", default="campaign/targets_selected.json")
++ap.add_argument("--template", default="cfg/campaign/campaign.yaml")
++ap.add_argument("--out", default="outputs/campaign")
++ap.add_argument("--reps", type=int, default=5)
++ap.add_argument("--campaign-seed", type=int, default=20261016)
++ap.add_argument("--eval-minutes", type=int, default=5)
++ap.add_argument("--dry-run", action="store_true")
++args = ap.parse_args()
++
++out = Path(args.out).resolve()
++for sub in ("configs", "logs", "audit", "timings"):
++    (out / sub).mkdir(parents=True, exist_ok=True)
++targets = json.loads(Path(args.targets).read_text())["selected"]
++template = yaml.safe_load(Path(args.template).read_text())
++progress = out / "progress.jsonl"
++
++
++def log_progress(**rec):
++    rec["timestamp"] = datetime.now(timezone.utc).isoformat()
++    with progress.open("a") as f:
++        f.write(json.dumps(rec) + "\n")
++
++
++for t in targets:
++    for r in range(1, args.reps + 1):
++        if (out / "STOP").exists():
++            print("STOP file found, exiting"); sys.exit(0)
++        key = run_key(t["project"], r)
++        save_root = out / f"rep{r}"
++        target_dir = find_target_dir(save_root, t["project"])
++        done = manifest_status(target_dir) == "completed" and (target_dir / "eval" / "eval_results.json").exists()
++        if done:
++            continue
++        if manifest_status(target_dir) not in (None, "completed"):
++            # never resume inside a failed run: its workspaces would be reused as CACHED harnesses
++            dest = out / "failed" / f"{key}_{int(time.time())}"
++            dest.parent.mkdir(parents=True, exist_ok=True)
++            shutil.move(str(target_dir.parent), str(dest))
++            for side in (out / "audit" / f"{key}.log", out / "timings" / f"{key}.jsonl"):
++                if side.exists():                          # keep G3 counts per attempt
++                    shutil.move(str(side), str(dest / side.name))
++            log_progress(run=key, phase="moved_failed_run", to=str(dest))
++            target_dir = None
++        cfg = {**template, "save_root": str(save_root), "project_name": [t["project"]],
++               "function_signatures": [t["signature"]], "language": LANG_LABEL[t["language"]],
++               "seed": rep_seed(args.campaign_seed, r), "repetition_index": r}
++        cfg_path = out / "configs" / f"{key}.yaml"
++        cfg_path.write_text(yaml.safe_dump(cfg, sort_keys=False))
++        env = {**os.environ, "LLMGA_HTTP_AUDIT": str(out / "audit" / f"{key}.log"),
++               "LLMGA_BUILD_TIMINGS": str(out / "timings" / f"{key}.jsonl")}
++        print(f"[{datetime.now():%m-%d %H:%M}] {key}: seed={cfg['seed']}", flush=True)
++        if args.dry_run:
++            continue
++        t0 = time.time()
++        if manifest_status(target_dir) != "completed":
++            with (out / "logs" / f"{key}.log").open("a") as lf:
++                rc = sp.run([sys.executable, "-m", "agent.run_evo_gen", str(cfg_path), "--processes", "1",
++                             "--project", t["project"], "--function", t["signature"]],
++                            stdout=lf, stderr=sp.STDOUT, stdin=sp.DEVNULL, env=env).returncode
++            target_dir = find_target_dir(save_root, t["project"])
++            log_progress(run=key, phase="evolution", rc=rc, status=manifest_status(target_dir),
++                         seconds=round(time.time() - t0))
++        if manifest_status(target_dir) == "completed":
++            t1 = time.time()
++            with (out / "logs" / f"{key}.eval.log").open("a") as lf:
++                rc = sp.run([sys.executable, "scripts/campaign/eval_run.py", str(target_dir), "--cfg", str(cfg_path),
++                             "--minutes", str(args.eval_minutes)], stdout=lf, stderr=sp.STDOUT,
++                            stdin=sp.DEVNULL, env=env).returncode
++            log_progress(run=key, phase="eval", rc=rc, seconds=round(time.time() - t1))
++print("campaign finished")
+diff --git a/scripts/campaign/sample_targets.py b/scripts/campaign/sample_targets.py
+new file mode 100644
+index 0000000..c28b3b8
+--- /dev/null
++++ b/scripts/campaign/sample_targets.py
+@@ -0,0 +1,30 @@
++"""Step 1: seeded, language-stratified order of all benchmark targets + quotas for N targets.
++
++Commit the output before any run. Screening (screen_targets.py) walks this order.
++Usage: python scripts/campaign/sample_targets.py --n 12 --seed 20261016 --out campaign/targets_ordered.json
++"""
++import argparse
++import json
++import sys
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
++from utils.campaign import load_benchmark, stratified_order  # noqa: E402
++
++ap = argparse.ArgumentParser()
++ap.add_argument("--bench-dir", default="benchmark-sets/function_0")
++ap.add_argument("--n", type=int, default=12)
++ap.add_argument("--seed", type=int, default=20261016)
++ap.add_argument("--out", default="campaign/targets_ordered.json")
++args = ap.parse_args()
++
++targets = load_benchmark(Path(args.bench_dir))
++plan = stratified_order(targets, args.seed, args.n)
++plan["bench_dir"] = args.bench_dir
++out = Path(args.out)
++out.parent.mkdir(parents=True, exist_ok=True)
++out.write_text(json.dumps(plan, indent=2))
++print(f"targets: {len(targets)}  counts: {plan['counts']}  quota: {plan['quota']}  seed: {args.seed}")
++for lang, items in plan["order"].items():
++    print(f"  {lang}: first 6 in order -> {[t['project'] for t in items[:6]]}")
++print(f"written: {out}")
+diff --git a/scripts/campaign/screen_targets.py b/scripts/campaign/screen_targets.py
+new file mode 100644
+index 0000000..aee57ef
+--- /dev/null
++++ b/scripts/campaign/screen_targets.py
+@@ -0,0 +1,78 @@
++"""Step 2: walk the seeded order and keep the first targets whose OSS-Fuzz build succeeds within
++the time cap (this 4-core / 3 GB server allows ~2 h per run). Every rejection is recorded.
++
++Builds the original OSS-Fuzz project (address sanitizer, no harness change), pulls nothing,
++and removes the project image afterwards to save disk.
++Usage: python scripts/campaign/screen_targets.py --cap 120 [--ordered campaign/targets_ordered.json]
++"""
++import argparse
++import json
++import subprocess as sp
++import sys
++import time
++from datetime import datetime, timezone
++from pathlib import Path
++
++ap = argparse.ArgumentParser()
++ap.add_argument("--ordered", default="campaign/targets_ordered.json")
++ap.add_argument("--oss-fuzz", default="/home/ubuntu/fuzzing_workspace/oss-fuzz")
++ap.add_argument("--cap", type=int, default=120, help="max seconds for build_fuzzers")
++ap.add_argument("--out", default="campaign/targets_selected.json")
++ap.add_argument("--log", default="campaign/screening.jsonl")
++args = ap.parse_args()
++
++plan = json.loads(Path(args.ordered).read_text())
++helper = Path(args.oss_fuzz) / "infra" / "helper.py"
++log = Path(args.log)
++done = {json.loads(x)["project"]: json.loads(x) for x in log.read_text().splitlines()} if log.exists() else {}
++
++
++def run(cmd, timeout):
++    t0 = time.monotonic()
++    try:
++        p = sp.run(cmd, stdin=sp.DEVNULL, stdout=sp.PIPE, stderr=sp.STDOUT, text=True, timeout=timeout)
++        return p.returncode, time.monotonic() - t0, p.stdout[-2000:]
++    except sp.TimeoutExpired:
++        return "timeout", time.monotonic() - t0, ""
++
++
++selected = []
++for lang, quota in plan["quota"].items():
++    accepted = 0
++    for t in plan["order"][lang]:
++        if accepted >= quota:
++            break
++        rec = done.get(t["project"])
++        if rec is None:
++            proj = t["project"]
++            rc_i, img_s, _ = run(["python3", str(helper), "build_image", proj, "--no-pull"], 1800)
++            rc_b, fz_s, tail = (None, None, "")
++            if rc_i == 0:
++                rc_b, fz_s, tail = run(["python3", str(helper), "build_fuzzers", proj], args.cap + 60)
++            fuzzer = Path(args.oss_fuzz) / "build" / "out" / proj / (t["target_name"] or "")
++            if rc_i != 0:
++                result = "image_failed"
++            elif rc_b == "timeout" or (fz_s or 0) > args.cap:
++                result = "too_slow"
++            elif rc_b != 0:
++                result = "build_failed"
++            elif not (t["target_name"] and fuzzer.exists()):
++                result = "fuzzer_missing"
++            else:
++                result = "ok"
++            rec = {"timestamp": datetime.now(timezone.utc).isoformat(), "project": proj, "language": lang,
++                   "build_image_s": round(img_s, 1), "build_fuzzers_s": None if fz_s is None else round(fz_s, 1),
++                   "cap_s": args.cap, "result": result, "tail": tail[-500:] if result != "ok" else ""}
++            with log.open("a") as f:
++                f.write(json.dumps(rec) + "\n")
++            sp.run(["docker", "rmi", "-f", f"gcr.io/oss-fuzz/{proj}"], stdout=sp.DEVNULL, stderr=sp.DEVNULL)
++        print(f"{lang:4s} {t['project']:28s} {rec['result']:15s} build_fuzzers={rec['build_fuzzers_s']}s")
++        if rec["result"] == "ok":
++            accepted += 1
++            selected.append({**t, "screen": rec})
++    if accepted < quota:
++        print(f"WARNING: only {accepted}/{quota} {lang} targets passed the screen")
++
++Path(args.out).write_text(json.dumps({"cap_s": args.cap, "seed": plan["seed"], "quota": plan["quota"],
++                                      "selected": selected}, indent=2))
++print(f"selected {len(selected)} targets -> {args.out}")
+diff --git a/tests/test_p06_campaign.py b/tests/test_p06_campaign.py
+new file mode 100644
+index 0000000..5794627
+--- /dev/null
++++ b/tests/test_p06_campaign.py
+@@ -0,0 +1,55 @@
++"""PATCH 6: campaign sampling and bookkeeping."""
++import json
++from pathlib import Path
++
++from utils.campaign import (count_http_posts, files_with_secrets, load_benchmark, pick_final_best,
++                            pick_gen0_best, rep_seed, stratified_order)
++
++BENCH = Path(__file__).resolve().parent.parent / "benchmark-sets" / "function_0"
++
++
++def test_benchmark_has_243_targets_66_c_177_cpp():
++    targets = load_benchmark(BENCH)
++    assert len(targets) == 243
++    langs = [t["language"] for t in targets]
++    assert (langs.count("c"), langs.count("c++")) == (66, 177)
++
++
++def test_stratified_order_is_seeded_and_proportional():
++    targets = load_benchmark(BENCH)
++    a, b, c = (stratified_order(targets, s, 12) for s in (20261016, 20261016, 7))
++    assert a["quota"] == {"c": 3, "c++": 9}
++    assert a["order"] == b["order"] and a["order"] != c["order"]
++    assert sorted(t["project"] for t in a["order"]["c"]) == sorted(t["project"] for t in targets if t["language"] == "c")
++
++
++def test_rep_seeds_differ():
++    assert len({rep_seed(20261016, r) for r in range(1, 6)}) == 5
++
++
++def _genome(path, gid, gen, total, code="int x;", ok=True):
++    path.write_text(json.dumps({"genome_id": gid, "generation": gen, "code": code, "compile_ok": ok,
++                                "fitness": {"total": total}}))
++
++
++def test_pick_gen0_and_final_best(tmp_path):
++    g0 = tmp_path / "evolution" / "gen_000"
++    g0.mkdir(parents=True)
++    _genome(g0 / "00_a.json", "a", 0, 0.7)
++    _genome(g0 / "01_b.json", "b", 0, 0.9)
++    _genome(g0 / "02_c.json", "c", 0, 1.5, ok=False)        # not compiled: never the baseline
++    fin = tmp_path / "evolution" / "final"
++    fin.mkdir(parents=True)
++    _genome(fin / "best_01_d.json", "d", 3, 0.95)
++    assert pick_gen0_best(tmp_path)["genome_id"] == "b"
++    assert pick_final_best(tmp_path)["genome_id"] == "d"
++
++
++def test_http_posts_and_secret_scan(tmp_path):
++    audit = tmp_path / "a.log"
++    audit.write_text('x HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"\nother\n' * 3)
++    assert count_http_posts(audit) == 3 and count_http_posts(tmp_path / "missing.log") is None
++    (tmp_path / "clean.txt").write_text("sk-ssh-ed25519-cert-v01@openssh.com")      # OpenSSH key type, not a secret
++    assert files_with_secrets(tmp_path) == []
++    (tmp_path / "leak.txt").write_text("key=" + "sk-" + "proj-" + "A" * 40)
++    assert files_with_secrets(tmp_path) == [str(tmp_path / "leak.txt")]
+diff --git a/utils/campaign.py b/utils/campaign.py
+new file mode 100644
+index 0000000..8061b0b
+--- /dev/null
++++ b/utils/campaign.py
+@@ -0,0 +1,104 @@
++"""Campaign helpers: seeded stratified target order, per-repetition seeds, run bookkeeping.
++
++Used by scripts/campaign/*.py (sampling, screening, launching, evaluation, gates).
++"""
++from __future__ import annotations
++
++import hashlib
++import json
++import random
++import re
++from pathlib import Path
++from typing import Any, Optional
++
++import yaml
++
++LANG_LABEL = {"c": "C", "c++": "CPP"}           # benchmark YAML label -> BenchConfig.language
++SECRET_RE = re.compile(r"sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,}")
++
++
++def load_benchmark(bench_dir: Path) -> list[dict[str, Any]]:
++    """One target per benchmark YAML: the project's first function (as funcs_per_project=1)."""
++    targets = []
++    for f in sorted(Path(bench_dir).glob("*.yaml")):
++        data = yaml.safe_load(f.read_text(encoding="utf-8"))
++        fn = next((x for x in data.get("functions", []) if "signature" in x), None)
++        if fn is None:
++            continue
++        targets.append({
++            "project": data["project"], "language": str(data.get("language", "")).lower(),
++            "signature": fn["signature"], "function": fn.get("name"),
++            "target_name": data.get("target_name"), "target_path": data.get("target_path"),
++            "yaml": f.name, "yaml_sha256": hashlib.sha256(f.read_bytes()).hexdigest(),
++        })
++    return targets
++
++
++def stratified_order(targets: list[dict], seed: int, n: int) -> dict[str, Any]:
++    """Seeded random order within each language stratum and proportional quotas for n targets."""
++    strata: dict[str, list[dict]] = {}
++    for t in sorted(targets, key=lambda t: t["project"]):
++        strata.setdefault(t["language"], []).append(t)
++    rng = random.Random(seed)
++    for lang in sorted(strata):
++        rng.shuffle(strata[lang])
++    total = sum(len(v) for v in strata.values())
++    quota = {lang: round(n * len(v) / total) for lang, v in strata.items()}
++    # fix rounding so the quotas add up to n (adjust the largest stratum)
++    largest = max(strata, key=lambda k: len(strata[k]))
++    quota[largest] += n - sum(quota.values())
++    return {"seed": seed, "n": n, "counts": {k: len(v) for k, v in sorted(strata.items())},
++            "quota": dict(sorted(quota.items())), "order": {k: v for k, v in sorted(strata.items())}}
++
++
++def rep_seed(campaign_seed: int, repetition: int) -> int:
++    """Base seed of one repetition (evo_gen derives the per-target seed from it)."""
++    return int(hashlib.sha256(f"{campaign_seed}:rep{repetition}".encode()).hexdigest()[:8], 16)
++
++
++def run_key(project: str, repetition: int) -> str:
++    return f"{project}_rep{repetition}"
++
++
++def find_target_dir(save_root: Path, project: str) -> Optional[Path]:
++    hits = sorted((Path(save_root) / project.lower()).glob("*/run_manifest.json"))
++    return hits[0].parent if hits else None
++
++
++def manifest_status(target_dir: Optional[Path]) -> Optional[str]:
++    if target_dir is None:
++        return None
++    try:
++        return json.loads((target_dir / "run_manifest.json").read_text())["status"]
++    except (OSError, KeyError, json.JSONDecodeError):
++        return None
++
++
++def pick_gen0_best(target_dir: Path) -> Optional[dict]:
++    """Best compiled generation-0 genome by its recorded in-loop fitness (the non-evolutionary baseline)."""
++    genomes = [json.loads(p.read_text(encoding="utf-8")) for p in sorted((target_dir / "evolution" / "gen_000").glob("*.json"))]
++    valid = [g for g in genomes if g.get("compile_ok") and g.get("code")]
++    return max(valid, key=lambda g: g["fitness"]["total"]) if valid else None
++
++
++def pick_final_best(target_dir: Path) -> Optional[dict]:
++    hits = sorted((target_dir / "evolution" / "final").glob("best_01_*.json"))
++    return json.loads(hits[0].read_text(encoding="utf-8")) if hits else None
++
++
++def count_http_posts(audit_file: Path) -> Optional[int]:
++    if not Path(audit_file).exists():
++        return None
++    return sum(1 for line in Path(audit_file).read_text(errors="replace").splitlines() if "HTTP Request: POST" in line)
++
++
++def files_with_secrets(root: Path) -> list[str]:
++    hits = []
++    for p in Path(root).rglob("*"):
++        if p.is_file() and p.stat().st_size < 50_000_000:
++            try:
++                if SECRET_RE.search(p.read_text(errors="ignore")):
++                    hits.append(str(p))
++            except OSError:
++                continue
++    return hits
