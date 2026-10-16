@@ -40,6 +40,7 @@ class HarnessGenome:
     compile_ok:    bool          = False
     compile_error: str           = ""
     fuzz_log_path: Optional[str] = None
+    meta:          dict          = field(default_factory=dict)  # operator details (strategy, rule)
 
     
     # Factory helpers
@@ -94,6 +95,7 @@ class HarnessGenome:
             "compile_ok":   self.compile_ok,
             "compile_error": self.compile_error,
             "fuzz_log_path": self.fuzz_log_path,
+            "meta":         self.meta,
             "fitness": {
                 "status":        self.fitness.status,
                 "error_message": self.fitness.error_message,
