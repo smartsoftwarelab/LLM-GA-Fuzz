@@ -1,0 +1,7 @@
+INFO: -fork=1: fuzzing in separate process(s)
+#16: cov: 76 ft: 77 corp: 1 exec/s: 0 oom/timeout/crash: 0/0/1 time: 0s job: 2 dft_time: 0
+==16==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x5020000004b5 at pc 0x5644d77b9cd7 bp 0x7fffe9be79d0 sp 0x7fffe9be79c8
+#37: cov: 94 ft: 95 corp: 4 exec/s: 0 oom/timeout/crash: 0/0/2 time: 0s job: 3 dft_time: 0
+==25==ERROR: LeakSanitizer: detected memory leaks
+INFO: fuzzed for 61 seconds, wrapping up soon
+INFO: exiting: 1 time: 61s
