@@ -3,3 +3,4 @@ outputs/
 cache/
 __pycache__/
 *.pyc
+project_code_export.txt
