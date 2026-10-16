@@ -35,7 +35,7 @@ from agent.modules.population import (
     OP_CROSSOVER, OP_INITIAL, OP_CACHED, OP_MUTATION, OP_REPAIR,
 )
 from agent.modules.variation import (
-    CrossoverOperator, MutationOperator, MUTATION_STRATEGIES,
+    CrossoverOperator, MutationOperator, MUTATION_STRATEGIES, STRATEGY_NAMES, choose_strategy,
 )
 from agent_tools.fuzz_tools.run_fuzzer import FuzzerRunner, LIBFUZZER_SEED
 from agent_tools.fuzz_tools.llvm_cov import library_scope_root
@@ -245,7 +245,8 @@ class EvoISSTAFuzzer:
                     "temperature_config": cfg.temperature, "reasoning": cfg.reasoning,
                     "llm_max_retries": cfg.llm_max_retries, "http_audit_log": HTTP_AUDIT_PATH,
                     "note": "per-request model/temperature actually sent: usage_log.jsonl and llm_observed_params"},
-            "evolution": dict(self.ecfg),
+            "evolution": {**self.ecfg, "strategy_selection": cfg.strategy_selection,
+                          "strategy_priority_weight": cfg.strategy_priority_weight},
             "fitness": {"normalization": cfg.fitness_normalization, "crash_bonus_lambda": cfg.crash_bonus,
                         "rrf_k": cfg.rrf_k, "crash_repro_max": cfg.crash_repro_max,
                         "W_COVERAGE": fitness_mod.W_COVERAGE, "W_FEATURES": fitness_mod.W_FEATURES,
@@ -595,6 +596,8 @@ class EvoISSTAFuzzer:
             "fitness_normalization": fitness_config().state(),
             "archive_size":        len(self.archive),
             "archive_best_cov":    archive_best[0].fitness.coverage if archive_best else None,
+            "archive_max_features": max((g.fitness.features for g in self.archive.all_valid()
+                                         if g.fitness.features is not None), default=None),
             "archive_best_fitness": archive_best[0].total_fitness() if archive_best else 0.0,
         }
         self.generation_stats.append(stats)
@@ -614,6 +617,11 @@ class EvoISSTAFuzzer:
     
     # Convergence check
     
+
+    def _path_plateau(self, window: int = 3) -> bool:
+        """Paper rule 1: archive max features (path diversity) unchanged over `window` generations."""
+        recent = [s.get("archive_max_features") for s in self.generation_stats[-window:]]
+        return len(recent) == window and None not in recent and len(set(recent)) == 1
 
     def _converged(self) -> bool:
         window = self.ecfg["evo_convergence_window"]
@@ -699,7 +707,15 @@ class EvoISSTAFuzzer:
                         )
                     else:
                         parent   = self.archive.tournament_select(tournament_k)
-                        strategy = random.choice(MUTATION_STRATEGIES)
+                        s_idx, s_rule = choose_strategy(
+                            self.benchcfg.strategy_selection, parent.fitness,
+                            self._path_plateau(), self.benchcfg.strategy_priority_weight,
+                        )
+                        strategy = MUTATION_STRATEGIES[s_idx]
+                        self.logger.info(
+                            f"  strategy={STRATEGY_NAMES[s_idx]} rule={s_rule} "
+                            f"(mode={self.benchcfg.strategy_selection}, parent={parent.genome_id})"
+                        )
                         cov_fb   = (
                             f"Parent {parent.genome_id} achieved "
                             f"{prompt_value(parent.fitness.coverage)} edges and "
@@ -714,6 +730,8 @@ class EvoISSTAFuzzer:
                         child = HarnessGenome.make(
                             code, gen, [parent.genome_id], OP_MUTATION
                         )
+                        child.meta = {"strategy": STRATEGY_NAMES[s_idx], "strategy_rule": s_rule,
+                                      "strategy_mode": self.benchcfg.strategy_selection}
 
                     # Evaluate offspring
                     eval_dir = (

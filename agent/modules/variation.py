@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import re
 from pathlib import Path
 from typing import Optional
@@ -59,6 +60,48 @@ MUTATION_STRATEGIES: list[str] = [
     "for a different parameter of the target function, maximising parameter-space "
     "coverage.",
 ]
+
+
+# Names of MUTATION_STRATEGIES (same order) as in Table II of the paper.
+STRATEGY_NAMES: list[str] = [
+    "INPUTCONSUMPTIONPATTERN", "BUFFERBOUNDARYMUTATION", "FUZZDATAPROVIDERMETHODS",
+    "LOOPINJECTION", "NULLCHECKINSERTION", "ERRORPATHACTIVATION",
+    "REINITCLEANUPPATTERN", "PRECALLSTATEMANIPULATION", "GLOBALVARINIT", "MULTISEGMENTINPUT",
+]
+assert len(STRATEGY_NAMES) == len(MUTATION_STRATEGIES)
+
+# Paper, Sec. III-E.1: rule 2 (low stability) is checked before rule 1 (path plateau).
+LOW_STABILITY_STRATEGIES = ("NULLCHECKINSERTION", "REINITCLEANUPPATTERN")
+PATH_PLATEAU_STRATEGIES  = ("LOOPINJECTION", "ERRORPATHACTIVATION")
+
+
+def choose_strategy(mode: str, parent_fitness, path_plateau: bool,
+                    priority_weight: float = 3.0) -> tuple[int, str]:
+    """Pick a mutation strategy index and the rule that fired. Uses the global `random`
+    (seeded per run).
+
+    random : uniform choice, identical RNG use to the original random.choice(MUTATION_STRATEGIES)
+    profile: low_stability -> NULLCHECKINSERTION / REINITCLEANUPPATTERN weighted x priority_weight;
+             else path_plateau -> LOOPINJECTION / ERRORPATHACTIVATION weighted x priority_weight;
+             else uniform.
+    s(Hp) is low when the parent did not finish its trial normally (stability < 1 or unmeasured)
+    or its trial had any crash / harness-failure event.
+    """
+    n = len(MUTATION_STRATEGIES)
+    if mode == "random":
+        return random.choice(range(n)), "random"
+    if mode != "profile":
+        raise ValueError(f"strategy_selection must be profile|random, got {mode!r}")
+    stability = getattr(parent_fitness, "stability", None)
+    low_stability = stability is None or stability < 1.0 or bool(getattr(parent_fitness, "crash_events", None))
+    if low_stability:
+        rule, preferred = "low_stability", LOW_STABILITY_STRATEGIES
+    elif path_plateau:
+        rule, preferred = "path_plateau", PATH_PLATEAU_STRATEGIES
+    else:
+        return random.choice(range(n)), "uniform"
+    weights = [priority_weight if name in preferred else 1.0 for name in STRATEGY_NAMES]
+    return random.choices(range(n), weights=weights, k=1)[0], rule
 
 
 # Helpers

@@ -110,6 +110,12 @@ class BenchConfig:
         self.rrf_k = int(self.config.get('rrf_k', 60))
         self.crash_repro_max = int(self.config.get('crash_repro_max', 3))  # crash inputs reproduced per trial
 
+        # mutation strategy selection (agent/modules/variation.py: choose_strategy)
+        self.strategy_selection = self.config.get('strategy_selection', "profile")   # profile | random (ablation)
+        if self.strategy_selection not in ("profile", "random"):
+            sys.exit(f"ERROR: strategy_selection must be profile|random, got {self.strategy_selection!r}")
+        self.strategy_priority_weight = float(self.config.get('strategy_priority_weight', 3.0))
+
         # pinned toolchain: do not pull newer OSS-Fuzz base images during a run (utils/oss_fuzz_utils.py)
         self.oss_fuzz_pull_images = bool(self.config.get('oss_fuzz_pull_images', False))
         os.environ["LLMGA_OSSFUZZ_PULL"] = "1" if self.oss_fuzz_pull_images else "0"
