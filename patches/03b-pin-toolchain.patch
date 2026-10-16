@@ -1,0 +1,217 @@
+diff --git a/agent/evo_gen.py b/agent/evo_gen.py
+index beb639d..a5b3d0b 100644
+--- a/agent/evo_gen.py
++++ b/agent/evo_gen.py
+@@ -231,6 +231,8 @@ class EvoISSTAFuzzer:
+             "code":             git_info(Path(PROJECT_PATH)),
+             "oss_fuzz":         git_info(cfg.oss_fuzz_dir),
+             "docker_images_start": docker_image_info(),
++            "toolchain": {"oss_fuzz_pull_images": cfg.oss_fuzz_pull_images,
++                          "build_timings_log": os.environ.get("LLMGA_BUILD_TIMINGS")},
+             "llm": {"model_name": cfg.model_name, "base_url": cfg.base_url or None,
+                     "temperature_config": cfg.temperature, "reasoning": cfg.reasoning,
+                     "llm_max_retries": cfg.llm_max_retries, "http_audit_log": HTTP_AUDIT_PATH,
+diff --git a/agent_tools/fuzz_tools/compiler.py b/agent_tools/fuzz_tools/compiler.py
+index d763ffd..9221fda 100644
+--- a/agent_tools/fuzz_tools/compiler.py
++++ b/agent_tools/fuzz_tools/compiler.py
+@@ -1,4 +1,6 @@
++import json
+ import time
++from datetime import datetime, timezone
+ from utils.oss_fuzz_utils import OSSFuzzUtils
+ from utils.docker_utils import DockerUtils
+ from constants import CompileResults
+@@ -10,6 +12,21 @@ from pathlib import Path
+ from typing import Optional
+ import random
+ 
++def record_build_timing(project: str, sanitizer: Optional[str], image_s: Optional[float],
++                        total_s: float, result: CompileResults) -> None:
++    """Append one JSON line per compile to $LLMGA_BUILD_TIMINGS (no-op when unset)."""
++    path = os.environ.get("LLMGA_BUILD_TIMINGS")
++    if not path:
++        return
++    rec = {"timestamp": datetime.now(timezone.utc).isoformat(), "pid": os.getpid(), "project": project,
++           "sanitizer": sanitizer or "default", "result": result.name,
++           "build_image_s": None if image_s is None else round(image_s, 1),
++           "build_fuzzers_s": None if image_s is None else round(total_s - image_s, 1),
++           "total_s": round(total_s, 1)}
++    with open(path, "a", encoding="utf-8") as f:
++        f.write(json.dumps(rec) + "\n")
++
++
+ class Compiler():
+ 
+     def __init__(self, oss_fuzz_dir: Path, benchmark_dir: Path, project_name: str, new_project_name: str, include_path: Optional[set[str]]=None,
+@@ -23,6 +40,7 @@ class Compiler():
+         self.project_lang =  self.oss_tool.get_project_language()
+         self.docker_tool = DockerUtils(oss_fuzz_dir, project_name, new_project_name, self.project_lang)
+ 
++        self.sanitizer = sanitizer
+         self.build_harness_cmd = self.oss_tool.get_script_cmd("build_fuzzers")
+         if sanitizer:
+             # helper.py build_fuzzers --clean --sanitizer=<sanitizer> <project>
+@@ -92,10 +110,17 @@ class Compiler():
+             f.writelines('\n'.join(all_lines))
+         
+     def compile_harness(self,  harness_code: str, harness_path: Path, fuzzer_name: str, cmd: Optional[str]=None) -> tuple[CompileResults, str]:
+-        '''Compile the generated harness code'''
++        '''Compile the generated harness code (timed: image build vs build_fuzzers, see record_build_timing)'''
++        self._image_s: Optional[float] = None
++        t0 = time.monotonic()
++        res, msg = self._compile_harness(harness_code, harness_path, fuzzer_name, cmd)
++        record_build_timing(self.new_project_name, self.sanitizer, self._image_s, time.monotonic() - t0, res)
++        return res, msg
++
++    def _compile_harness(self,  harness_code: str, harness_path: Path, fuzzer_name: str, cmd: Optional[str]=None) -> tuple[CompileResults, str]:
+ 
+         # Run build.sh. There are two possible outcomes:
+-        # 1. The code compiles successfully. 
++        # 1. The code compiles successfully.
+         # 3. The code compiles but has a compile error. The code should be fixed.
+ 
+         # write the dockerfile
+@@ -103,12 +128,14 @@ class Compiler():
+         self.write_build_script()
+ 
+         # build the image
++        t_image = time.monotonic()
+         build_flag = False
+         for _ in range(3):  # try multiple times to avoid some issues
+             if self.docker_tool.build_image(self.build_image_cmd):
+                 build_flag = True
+                 break
+             time.sleep(5)
++        self._image_s = time.monotonic() - t_image
+         if not build_flag:
+             return CompileResults.ImageError, "Failed to build image"
+         
+diff --git a/bench_cfg.py b/bench_cfg.py
+index dcc2504..216b735 100644
+--- a/bench_cfg.py
++++ b/bench_cfg.py
+@@ -102,6 +102,10 @@ class BenchConfig:
+         self.no_log = self.config.get('no_log', False)
+         self.ignore_crashes = self.config.get('ignore_crashes', False)
+ 
++        # pinned toolchain: do not pull newer OSS-Fuzz base images during a run (utils/oss_fuzz_utils.py)
++        self.oss_fuzz_pull_images = bool(self.config.get('oss_fuzz_pull_images', False))
++        os.environ["LLMGA_OSSFUZZ_PULL"] = "1" if self.oss_fuzz_pull_images else "0"
++
+         # for reported coverage (llvm-cov on the final corpus, agent/eval.py)
+         self.coverage_metric = self.config.get('coverage_metric', "branches")
+         if self.coverage_metric not in ("branches", "regions", "lines", "functions"):
+diff --git a/scripts/pin_base_images.sh b/scripts/pin_base_images.sh
+new file mode 100644
+index 0000000..f143e69
+--- /dev/null
++++ b/scripts/pin_base_images.sh
+@@ -0,0 +1,15 @@
++#!/bin/bash
++# PATCH 3b: pull the OSS-Fuzz base images ONCE before a pilot/campaign and print what was pinned.
++# With oss_fuzz_pull_images: false (default) every later build reuses these local images.
++# Usage: bash scripts/pin_base_images.sh [out_file]
++set -euo pipefail
++OUT="${1:-/tmp/pinned_base_images.txt}"
++IMAGES="gcr.io/oss-fuzz-base/base-builder gcr.io/oss-fuzz-base/base-runner"
++for img in $IMAGES; do docker pull -q "$img" > /dev/null; done
++{
++  echo "pinned_at: $(date -u +%Y-%m-%dT%H:%M:%SZ)"
++  for img in $IMAGES; do
++    echo "$img id=$(docker image inspect --format '{{.Id}}' "$img") digests=$(docker image inspect --format '{{json .RepoDigests}}' "$img")"
++  done
++  echo "clang: $(docker run --rm gcr.io/oss-fuzz-base/base-builder clang --version | head -1)"
++} | tee "$OUT"
+diff --git a/tests/test_p03b_toolchain.py b/tests/test_p03b_toolchain.py
+new file mode 100644
+index 0000000..d88d048
+--- /dev/null
++++ b/tests/test_p03b_toolchain.py
+@@ -0,0 +1,54 @@
++"""PATCH 3b: base images are not pulled during a run unless configured; build timings are recorded."""
++import json
++
++import pytest
++
++from agent_tools.fuzz_tools.compiler import record_build_timing
++from bench_cfg import BenchConfig
++from constants import CompileResults
++from utils.oss_fuzz_utils import OSSFuzzUtils
++
++FAKE_KEY = "sk-" + "test" + "x" * 40
++
++
++def _cfg(tmp_path, extra=""):
++    p = tmp_path / "cfg.yaml"
++    p.write_text(f"save_root: {tmp_path / 'out'}\n{extra}")
++    return str(p)
++
++
++def _build_image_cmd(tmp_path):
++    proj = tmp_path / "oss-fuzz" / "projects" / "demo"
++    proj.mkdir(parents=True, exist_ok=True)
++    (proj / "project.yaml").write_text("language: c\n")
++    return OSSFuzzUtils(tmp_path / "oss-fuzz", tmp_path, "demo", "demo_run").get_script_cmd("build_image")
++
++
++@pytest.mark.parametrize("extra, flag", [("", "--no-pull"),
++                                         ("oss_fuzz_pull_images: false\n", "--no-pull"),
++                                         ("oss_fuzz_pull_images: true\n", "--pull")])
++def test_pull_flag_follows_config(tmp_path, monkeypatch, extra, flag):
++    monkeypatch.setenv("OPENAI_API_KEY", FAKE_KEY)
++    monkeypatch.delenv("LLMGA_OSSFUZZ_PULL", raising=False)
++    cfg = BenchConfig(_cfg(tmp_path, extra))
++    cmd = _build_image_cmd(tmp_path)
++    assert flag in cmd and ({"--pull", "--no-pull"} - {flag}).isdisjoint(cmd)
++    assert cfg.snapshot_dict()["oss_fuzz_pull_images"] is (flag == "--pull")
++
++
++def test_without_benchconfig_previous_behaviour_is_kept(tmp_path, monkeypatch):
++    monkeypatch.delenv("LLMGA_OSSFUZZ_PULL", raising=False)
++    assert "--pull" in _build_image_cmd(tmp_path)
++
++
++def test_build_timing_written_only_when_enabled(tmp_path, monkeypatch):
++    log = tmp_path / "timings.jsonl"
++    monkeypatch.delenv("LLMGA_BUILD_TIMINGS", raising=False)
++    record_build_timing("p", None, 1.0, 3.0, CompileResults.Success)
++    assert not log.exists()
++    monkeypatch.setenv("LLMGA_BUILD_TIMINGS", str(log))
++    record_build_timing("p", "coverage", 100.04, 160.0, CompileResults.Success)
++    record_build_timing("p", None, None, 5.0, CompileResults.ImageError)
++    a, b = [json.loads(x) for x in log.read_text().splitlines()]
++    assert (a["build_image_s"], a["build_fuzzers_s"], a["total_s"], a["sanitizer"]) == (100.0, 60.0, 160.0, "coverage")
++    assert (b["build_image_s"], b["build_fuzzers_s"], b["result"]) == (None, None, "ImageError")
+diff --git a/utils/oss_fuzz_utils.py b/utils/oss_fuzz_utils.py
+index f7311b8..7905d56 100644
+--- a/utils/oss_fuzz_utils.py
++++ b/utils/oss_fuzz_utils.py
+@@ -4,6 +4,17 @@ from pathlib import Path
+ from typing import Optional
+ import os
+ 
++
++def pull_base_images() -> bool:
++    """Whether helper.py build_image pulls the latest OSS-Fuzz base images.
++
++    Set process-wide by BenchConfig (config `oss_fuzz_pull_images`, default false) through
++    LLMGA_OSSFUZZ_PULL so every build in a run uses the same locally pinned base image.
++    Without BenchConfig the previous behaviour (pull) is kept.
++    """
++    return os.environ.get("LLMGA_OSSFUZZ_PULL", "1") == "1"
++
++
+ class OSSFuzzUtils:
+     def __init__(self, ossfuzz_dir: Path, benchmark_dir: Path, project_name: str, new_project_name: str) -> None:
+ 
+@@ -37,7 +48,8 @@ class OSSFuzzUtils:
+                             "build_fuzzers", "--clean", self.new_project_name],
+ 
+             "build_image": ["python", os.path.join(self.ossfuzz_dir, "infra", "helper.py"),
+-                            "build_image", self.new_project_name, "--pull", "--cache"]
++                            "build_image", self.new_project_name,
++                            "--pull" if pull_base_images() else "--no-pull", "--cache"]
+         }
+         assert mode in mapping.keys()
+         return mapping.get(mode) # type: ignore
