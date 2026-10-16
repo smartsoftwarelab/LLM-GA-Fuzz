@@ -231,6 +231,8 @@ class EvoISSTAFuzzer:
             "code":             git_info(Path(PROJECT_PATH)),
             "oss_fuzz":         git_info(cfg.oss_fuzz_dir),
             "docker_images_start": docker_image_info(),
+            "toolchain": {"oss_fuzz_pull_images": cfg.oss_fuzz_pull_images,
+                          "build_timings_log": os.environ.get("LLMGA_BUILD_TIMINGS")},
             "llm": {"model_name": cfg.model_name, "base_url": cfg.base_url or None,
                     "temperature_config": cfg.temperature, "reasoning": cfg.reasoning,
                     "llm_max_retries": cfg.llm_max_retries, "http_audit_log": HTTP_AUDIT_PATH,

@@ -102,6 +102,10 @@ class BenchConfig:
         self.no_log = self.config.get('no_log', False)
         self.ignore_crashes = self.config.get('ignore_crashes', False)
 
+        # pinned toolchain: do not pull newer OSS-Fuzz base images during a run (utils/oss_fuzz_utils.py)
+        self.oss_fuzz_pull_images = bool(self.config.get('oss_fuzz_pull_images', False))
+        os.environ["LLMGA_OSSFUZZ_PULL"] = "1" if self.oss_fuzz_pull_images else "0"
+
         # for reported coverage (llvm-cov on the final corpus, agent/eval.py)
         self.coverage_metric = self.config.get('coverage_metric', "branches")
         if self.coverage_metric not in ("branches", "regions", "lines", "functions"):

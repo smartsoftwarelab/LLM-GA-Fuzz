@@ -4,6 +4,17 @@ from pathlib import Path
 from typing import Optional
 import os
 
+
+def pull_base_images() -> bool:
+    """Whether helper.py build_image pulls the latest OSS-Fuzz base images.
+
+    Set process-wide by BenchConfig (config `oss_fuzz_pull_images`, default false) through
+    LLMGA_OSSFUZZ_PULL so every build in a run uses the same locally pinned base image.
+    Without BenchConfig the previous behaviour (pull) is kept.
+    """
+    return os.environ.get("LLMGA_OSSFUZZ_PULL", "1") == "1"
+
+
 class OSSFuzzUtils:
     def __init__(self, ossfuzz_dir: Path, benchmark_dir: Path, project_name: str, new_project_name: str) -> None:
 
@@ -37,7 +48,8 @@ class OSSFuzzUtils:
                             "build_fuzzers", "--clean", self.new_project_name],
 
             "build_image": ["python", os.path.join(self.ossfuzz_dir, "infra", "helper.py"),
-                            "build_image", self.new_project_name, "--pull", "--cache"]
+                            "build_image", self.new_project_name,
+                            "--pull" if pull_base_images() else "--no-pull", "--cache"]
         }
         assert mode in mapping.keys()
         return mapping.get(mode) # type: ignore
