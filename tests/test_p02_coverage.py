@@ -113,7 +113,7 @@ def test_log_without_stats_records_none_not_zero():
     assert s.coverage is None and s.features is None and s.exec_per_sec is None
     s.compile_ok = True
     assert s.total() == 0.0
-    s.crash_found = True
+    s.library_crash = True          # PATCH 4: the bonus requires a crash inside the library
     assert s.total() == CRASH_BONUS
 
 

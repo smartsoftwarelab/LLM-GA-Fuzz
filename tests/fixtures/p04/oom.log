@@ -1,0 +1,7 @@
+INFO: Seed: 1234
+INFO: Loaded 1 modules   (1506 inline 8-bit counters): 1506 [0x55a8bddba628, 0x55a8bddbf418),
+#2	INITED cov: 120 ft: 130 corp: 1/1b exec/s: 0 rss: 53Mb
+#64	NEW    cov: 140 ft: 160 corp: 2/9b lim: 4096 exec/s: 0 rss: 2600Mb
+==21== ERROR: libFuzzer: out-of-memory (used: 2600Mb; exceeds: 2560Mb)
+   To change the out-of-memory limit use -rss_limit_mb=<N>
+SUMMARY: libFuzzer: out-of-memory

@@ -102,6 +102,14 @@ class BenchConfig:
         self.no_log = self.config.get('no_log', False)
         self.ignore_crashes = self.config.get('ignore_crashes', False)
 
+        # fitness (agent/modules/fitness.py): normalisation, crash bonus lambda, crash reproduction
+        self.fitness_normalization = self.config.get('fitness_normalization', "pool_max")
+        if self.fitness_normalization not in ("pool_max", "fixed", "rrf"):
+            sys.exit(f"ERROR: fitness_normalization must be pool_max|fixed|rrf, got {self.fitness_normalization!r}")
+        self.crash_bonus = float(self.config.get('crash_bonus', 0.60))   # lambda; 0 for the ablation
+        self.rrf_k = int(self.config.get('rrf_k', 60))
+        self.crash_repro_max = int(self.config.get('crash_repro_max', 3))  # crash inputs reproduced per trial
+
         # pinned toolchain: do not pull newer OSS-Fuzz base images during a run (utils/oss_fuzz_utils.py)
         self.oss_fuzz_pull_images = bool(self.config.get('oss_fuzz_pull_images', False))
         os.environ["LLMGA_OSSFUZZ_PULL"] = "1" if self.oss_fuzz_pull_images else "0"

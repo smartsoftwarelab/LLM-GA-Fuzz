@@ -1,10 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import os
 import random
 import shutil
+import subprocess
+import time
 import traceback
 import uuid
 from pathlib import Path
@@ -24,6 +27,7 @@ from agent.modules.compilation import CompilerWraper
 from agent.modules import fitness as fitness_mod
 from agent.modules.fitness import (
     FitnessScores, extract_coverage_from_log, prompt_value,
+    configure_fitness, crash_location, fitness_config,
     STATUS_COMPILE_FAILED, STATUS_EVAL_ERROR, STATUS_EVAL_SKIPPED,
 )
 from agent.modules.population import (
@@ -34,6 +38,7 @@ from agent.modules.variation import (
     CrossoverOperator, MutationOperator, MUTATION_STRATEGIES,
 )
 from agent_tools.fuzz_tools.run_fuzzer import FuzzerRunner, LIBFUZZER_SEED
+from agent_tools.fuzz_tools.llvm_cov import library_scope_root
 
 
 # Default evolutionary hyper-parameters (overridden via YAML config)
@@ -144,6 +149,8 @@ class EvoISSTAFuzzer:
         self.seed      = derive_seed(benchcfg.seed, self.target_id) if benchcfg.seed is not None else None
         if self.seed is not None:
             random.seed(self.seed)
+        # fresh fitness-normalisation pool + crash-bonus lambda for this run
+        configure_fitness(benchcfg.fitness_normalization, benchcfg.crash_bonus, benchcfg.rrf_k)
         self.usage_log = activate(UsageLog(self.target_dir / "usage_log.jsonl", self.run_id, self.target_id))
         self.initial_attempts: list[dict] = []
         self.manifest: Optional[RunManifest] = None
@@ -231,6 +238,7 @@ class EvoISSTAFuzzer:
             "code":             git_info(Path(PROJECT_PATH)),
             "oss_fuzz":         git_info(cfg.oss_fuzz_dir),
             "docker_images_start": docker_image_info(),
+            "example_selection_cache_start": self._example_cache_digest(),
             "toolchain": {"oss_fuzz_pull_images": cfg.oss_fuzz_pull_images,
                           "build_timings_log": os.environ.get("LLMGA_BUILD_TIMINGS")},
             "llm": {"model_name": cfg.model_name, "base_url": cfg.base_url or None,
@@ -238,7 +246,9 @@ class EvoISSTAFuzzer:
                     "llm_max_retries": cfg.llm_max_retries, "http_audit_log": HTTP_AUDIT_PATH,
                     "note": "per-request model/temperature actually sent: usage_log.jsonl and llm_observed_params"},
             "evolution": dict(self.ecfg),
-            "fitness": {"W_COVERAGE": fitness_mod.W_COVERAGE, "W_FEATURES": fitness_mod.W_FEATURES,
+            "fitness": {"normalization": cfg.fitness_normalization, "crash_bonus_lambda": cfg.crash_bonus,
+                        "rrf_k": cfg.rrf_k, "crash_repro_max": cfg.crash_repro_max,
+                        "W_COVERAGE": fitness_mod.W_COVERAGE, "W_FEATURES": fitness_mod.W_FEATURES,
                         "W_EXEC": fitness_mod.W_EXEC, "W_STABILITY": fitness_mod.W_STABILITY,
                         "CRASH_BONUS": fitness_mod.CRASH_BONUS, "NORM_COVERAGE": fitness_mod.NORM_COVERAGE,
                         "NORM_FEATURES": fitness_mod.NORM_FEATURES, "NORM_EXEC": fitness_mod.NORM_EXEC},
@@ -246,6 +256,14 @@ class EvoISSTAFuzzer:
                           "usage_log": str(self.usage_log.path),
                           "generation_files": "evolution/gen_XXX/<idx>_<genome_id>.json (code + fitness)"},
         }
+
+    def _example_cache_digest(self) -> dict:
+        """sha256 of the shared example-ranking cache files for this project/model. Ranking is a
+        shared preprocessing step: present at start = reused, absent at start = created by this run."""
+        d = Path(self.benchcfg.cache_root) / self.project_name
+        model = self.benchcfg.model_name.replace("/", "_")
+        return {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
+                for p in sorted(d.glob(f"*_references_*_{model}.json"))} if d.is_dir() else {}
 
     # Shared evaluation environment
 
@@ -453,17 +471,24 @@ class EvoISSTAFuzzer:
             self.logger.info(
                 f"  Running {self.ecfg['evo_fuzz_trial_seconds']}s fuzz trial..."
             )
+            trial_start = time.time()
             fuzz_result, error_lines, stacks = runner.run_fuzzing(
                 counter, used_fuzzer, ignore_crashes=True, no_log=False
             )
 
-            # ---- extract coverage ----
-            log_path = eval_save_dir / f"fuzzing{counter}.log"
-            fitness  = extract_coverage_from_log(log_path)
+            # ---- extract coverage + classify crashes ----
+            log_path   = eval_save_dir / f"fuzzing{counter}.log"
+            scope_root = library_scope_root(harness_path, self.project_name)
+            fitness    = extract_coverage_from_log(log_path, scope_root=scope_root, harness_path=str(harness_path))
             fitness.compile_ok = True
 
             if fuzz_result == ValResult.Crash:
                 fitness.crash_found = True
+            if "sanitizer" in fitness.crash_events and fitness.crash_location == "unknown":
+                # fork-mode logs have no stack traces: reproduce the saved crash inputs
+                self._locate_crashes(fitness, env, used_fuzzer, str(harness_path), scope_root,
+                                     trial_start, eval_save_dir)
+            fitness_config().observe(fitness)
 
             genome.fitness       = fitness
             genome.fuzz_log_path = str(log_path)
@@ -472,7 +497,7 @@ class EvoISSTAFuzzer:
             self.logger.info(
                 f"  {genome.genome_id}: status={fitness.status}, cov={fitness.coverage}, "
                 f"ft={fitness.features}, exec/s={exec_s}, "
-                f"crash={fitness.crash_found}, "
+                f"crash_events={fitness.crash_events}, library_crash={fitness.library_crash}, "
                 f"total_fitness={fitness.total():.4f}"
             )
 
@@ -485,6 +510,33 @@ class EvoISSTAFuzzer:
                                            error_message=f"{type(exc).__name__}: {exc}")
 
         return genome
+
+    def _locate_crashes(self, fitness: FitnessScores, env: "_EvalEnv", fuzzer: str, harness_path: str,
+                        scope_root: str, trial_start: float, save_dir: Path) -> None:
+        """Reproduce up to crash_repro_max crash inputs written during this trial with
+        `helper.py reproduce` (ASan build still in build/out) and classify their stacks."""
+        out_dir = Path(self.benchcfg.oss_fuzz_dir) / "build" / "out" / env.new_project_name
+        artifacts = sorted((p for p in out_dir.glob("crash-*") if p.stat().st_mtime >= trial_start),
+                           key=lambda p: p.stat().st_mtime, reverse=True)[: self.benchcfg.crash_repro_max]
+        helper = Path(self.benchcfg.oss_fuzz_dir) / "infra" / "helper.py"
+        locations: list[str] = []
+        for art in artifacts:
+            try:
+                proc = subprocess.run(["python3", str(helper), "reproduce", env.new_project_name, fuzzer, str(art)],
+                                      capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL)
+                report = proc.stdout + proc.stderr
+            except Exception as exc:
+                report = f"reproduce failed: {type(exc).__name__}: {exc}"
+            shutil.copy(art, save_dir / art.name)
+            (save_dir / f"repro_{art.name}.log").write_text(report, encoding="utf-8", errors="replace")
+            locations.append(crash_location(report, scope_root, harness_path))
+        for loc in ("library", "harness", "other"):
+            if loc in locations:
+                fitness.apply_crash_location(loc)
+                break
+        else:
+            fitness.apply_crash_location("unknown")
+        self.logger.info(f"  crash reproduction: {len(artifacts)} input(s) -> {locations or 'none'}")
 
     def _evaluate_population(
         self, population: list[HarnessGenome], generation: int
@@ -539,6 +591,8 @@ class EvoISSTAFuzzer:
                 if population else 0.0
             ),
             "crash_found":         any(g.fitness.crash_found for g in population),
+            "library_crash_found": any(g.fitness.library_crash for g in population),
+            "fitness_normalization": fitness_config().state(),
             "archive_size":        len(self.archive),
             "archive_best_cov":    archive_best[0].fitness.coverage if archive_best else None,
             "archive_best_fitness": archive_best[0].total_fitness() if archive_best else 0.0,
@@ -803,6 +857,7 @@ class EvoISSTAFuzzer:
                 llm_observed_params=[{"model": m, "temperature_sent": t, "response_model": r}
                                      for m, t, r in sorted(self.usage_log.observed_params, key=str)],
                 docker_images_end=docker_image_info(),
+                example_selection_cache_end=self._example_cache_digest(),
             )
             # Clean up the shared evaluation environment
             if self._eval_env and not self._eval_env.early_exit_flag:

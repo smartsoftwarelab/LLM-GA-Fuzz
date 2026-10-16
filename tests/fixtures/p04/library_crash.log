@@ -1,0 +1,8 @@
+#2	INITED cov: 300 ft: 310 corp: 1/1b exec/s: 0 rss: 53Mb
+==11==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x502000000654 at pc 0x562b1eafacd7 bp 0x7ffc8c73cc90 sp 0x7ffc8c73cc88
+READ of size 1 at 0x502000000654 thread T0
+    #0 0x562b1eafacd6 in gf_list_enum /src/gpac/src/utils/list.c:753:12
+    #1 0x562b1eaf0a11 in visual_2d_draw_frame /src/gpac/src/compositor/visual_manager_2d.c:1188:9
+    #2 0x562b1ea8f2c3 in LLVMFuzzerTestOneInput /src/gpac/testsuite/oss-fuzzers/fuzz_m2ts_probe.c:41:5
+    #3 0x562b1e9a0100 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
+SUMMARY: AddressSanitizer: heap-buffer-overflow /src/gpac/src/utils/list.c:753:12 in gf_list_enum

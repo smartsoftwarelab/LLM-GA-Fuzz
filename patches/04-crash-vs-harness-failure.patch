@@ -1,0 +1,731 @@
+diff --git a/agent/evo_gen.py b/agent/evo_gen.py
+index a5b3d0b..6f9f8b6 100644
+--- a/agent/evo_gen.py
++++ b/agent/evo_gen.py
+@@ -1,10 +1,13 @@
+ from __future__ import annotations
+ 
++import hashlib
+ import json
+ import logging
+ import os
+ import random
+ import shutil
++import subprocess
++import time
+ import traceback
+ import uuid
+ from pathlib import Path
+@@ -24,6 +27,7 @@ from agent.modules.compilation import CompilerWraper
+ from agent.modules import fitness as fitness_mod
+ from agent.modules.fitness import (
+     FitnessScores, extract_coverage_from_log, prompt_value,
++    configure_fitness, crash_location, fitness_config,
+     STATUS_COMPILE_FAILED, STATUS_EVAL_ERROR, STATUS_EVAL_SKIPPED,
+ )
+ from agent.modules.population import (
+@@ -34,6 +38,7 @@ from agent.modules.variation import (
+     CrossoverOperator, MutationOperator, MUTATION_STRATEGIES,
+ )
+ from agent_tools.fuzz_tools.run_fuzzer import FuzzerRunner, LIBFUZZER_SEED
++from agent_tools.fuzz_tools.llvm_cov import library_scope_root
+ 
+ 
+ # Default evolutionary hyper-parameters (overridden via YAML config)
+@@ -144,6 +149,8 @@ class EvoISSTAFuzzer:
+         self.seed      = derive_seed(benchcfg.seed, self.target_id) if benchcfg.seed is not None else None
+         if self.seed is not None:
+             random.seed(self.seed)
++        # fresh fitness-normalisation pool + crash-bonus lambda for this run
++        configure_fitness(benchcfg.fitness_normalization, benchcfg.crash_bonus, benchcfg.rrf_k)
+         self.usage_log = activate(UsageLog(self.target_dir / "usage_log.jsonl", self.run_id, self.target_id))
+         self.initial_attempts: list[dict] = []
+         self.manifest: Optional[RunManifest] = None
+@@ -231,6 +238,7 @@ class EvoISSTAFuzzer:
+             "code":             git_info(Path(PROJECT_PATH)),
+             "oss_fuzz":         git_info(cfg.oss_fuzz_dir),
+             "docker_images_start": docker_image_info(),
++            "example_selection_cache_start": self._example_cache_digest(),
+             "toolchain": {"oss_fuzz_pull_images": cfg.oss_fuzz_pull_images,
+                           "build_timings_log": os.environ.get("LLMGA_BUILD_TIMINGS")},
+             "llm": {"model_name": cfg.model_name, "base_url": cfg.base_url or None,
+@@ -238,7 +246,9 @@ class EvoISSTAFuzzer:
+                     "llm_max_retries": cfg.llm_max_retries, "http_audit_log": HTTP_AUDIT_PATH,
+                     "note": "per-request model/temperature actually sent: usage_log.jsonl and llm_observed_params"},
+             "evolution": dict(self.ecfg),
+-            "fitness": {"W_COVERAGE": fitness_mod.W_COVERAGE, "W_FEATURES": fitness_mod.W_FEATURES,
++            "fitness": {"normalization": cfg.fitness_normalization, "crash_bonus_lambda": cfg.crash_bonus,
++                        "rrf_k": cfg.rrf_k, "crash_repro_max": cfg.crash_repro_max,
++                        "W_COVERAGE": fitness_mod.W_COVERAGE, "W_FEATURES": fitness_mod.W_FEATURES,
+                         "W_EXEC": fitness_mod.W_EXEC, "W_STABILITY": fitness_mod.W_STABILITY,
+                         "CRASH_BONUS": fitness_mod.CRASH_BONUS, "NORM_COVERAGE": fitness_mod.NORM_COVERAGE,
+                         "NORM_FEATURES": fitness_mod.NORM_FEATURES, "NORM_EXEC": fitness_mod.NORM_EXEC},
+@@ -247,6 +257,14 @@ class EvoISSTAFuzzer:
+                           "generation_files": "evolution/gen_XXX/<idx>_<genome_id>.json (code + fitness)"},
+         }
+ 
++    def _example_cache_digest(self) -> dict:
++        """sha256 of the shared example-ranking cache files for this project/model. Ranking is a
++        shared preprocessing step: present at start = reused, absent at start = created by this run."""
++        d = Path(self.benchcfg.cache_root) / self.project_name
++        model = self.benchcfg.model_name.replace("/", "_")
++        return {str(p): hashlib.sha256(p.read_bytes()).hexdigest()
++                for p in sorted(d.glob(f"*_references_*_{model}.json"))} if d.is_dir() else {}
++
+     # Shared evaluation environment
+ 
+ 
+@@ -453,17 +471,24 @@ class EvoISSTAFuzzer:
+             self.logger.info(
+                 f"  Running {self.ecfg['evo_fuzz_trial_seconds']}s fuzz trial..."
+             )
++            trial_start = time.time()
+             fuzz_result, error_lines, stacks = runner.run_fuzzing(
+                 counter, used_fuzzer, ignore_crashes=True, no_log=False
+             )
+ 
+-            # ---- extract coverage ----
+-            log_path = eval_save_dir / f"fuzzing{counter}.log"
+-            fitness  = extract_coverage_from_log(log_path)
++            # ---- extract coverage + classify crashes ----
++            log_path   = eval_save_dir / f"fuzzing{counter}.log"
++            scope_root = library_scope_root(harness_path, self.project_name)
++            fitness    = extract_coverage_from_log(log_path, scope_root=scope_root, harness_path=str(harness_path))
+             fitness.compile_ok = True
+ 
+             if fuzz_result == ValResult.Crash:
+                 fitness.crash_found = True
++            if "sanitizer" in fitness.crash_events and fitness.crash_location == "unknown":
++                # fork-mode logs have no stack traces: reproduce the saved crash inputs
++                self._locate_crashes(fitness, env, used_fuzzer, str(harness_path), scope_root,
++                                     trial_start, eval_save_dir)
++            fitness_config().observe(fitness)
+ 
+             genome.fitness       = fitness
+             genome.fuzz_log_path = str(log_path)
+@@ -472,7 +497,7 @@ class EvoISSTAFuzzer:
+             self.logger.info(
+                 f"  {genome.genome_id}: status={fitness.status}, cov={fitness.coverage}, "
+                 f"ft={fitness.features}, exec/s={exec_s}, "
+-                f"crash={fitness.crash_found}, "
++                f"crash_events={fitness.crash_events}, library_crash={fitness.library_crash}, "
+                 f"total_fitness={fitness.total():.4f}"
+             )
+ 
+@@ -486,6 +511,33 @@ class EvoISSTAFuzzer:
+ 
+         return genome
+ 
++    def _locate_crashes(self, fitness: FitnessScores, env: "_EvalEnv", fuzzer: str, harness_path: str,
++                        scope_root: str, trial_start: float, save_dir: Path) -> None:
++        """Reproduce up to crash_repro_max crash inputs written during this trial with
++        `helper.py reproduce` (ASan build still in build/out) and classify their stacks."""
++        out_dir = Path(self.benchcfg.oss_fuzz_dir) / "build" / "out" / env.new_project_name
++        artifacts = sorted((p for p in out_dir.glob("crash-*") if p.stat().st_mtime >= trial_start),
++                           key=lambda p: p.stat().st_mtime, reverse=True)[: self.benchcfg.crash_repro_max]
++        helper = Path(self.benchcfg.oss_fuzz_dir) / "infra" / "helper.py"
++        locations: list[str] = []
++        for art in artifacts:
++            try:
++                proc = subprocess.run(["python3", str(helper), "reproduce", env.new_project_name, fuzzer, str(art)],
++                                      capture_output=True, text=True, timeout=300, stdin=subprocess.DEVNULL)
++                report = proc.stdout + proc.stderr
++            except Exception as exc:
++                report = f"reproduce failed: {type(exc).__name__}: {exc}"
++            shutil.copy(art, save_dir / art.name)
++            (save_dir / f"repro_{art.name}.log").write_text(report, encoding="utf-8", errors="replace")
++            locations.append(crash_location(report, scope_root, harness_path))
++        for loc in ("library", "harness", "other"):
++            if loc in locations:
++                fitness.apply_crash_location(loc)
++                break
++        else:
++            fitness.apply_crash_location("unknown")
++        self.logger.info(f"  crash reproduction: {len(artifacts)} input(s) -> {locations or 'none'}")
++
+     def _evaluate_population(
+         self, population: list[HarnessGenome], generation: int
+     ) -> list[HarnessGenome]:
+@@ -539,6 +591,8 @@ class EvoISSTAFuzzer:
+                 if population else 0.0
+             ),
+             "crash_found":         any(g.fitness.crash_found for g in population),
++            "library_crash_found": any(g.fitness.library_crash for g in population),
++            "fitness_normalization": fitness_config().state(),
+             "archive_size":        len(self.archive),
+             "archive_best_cov":    archive_best[0].fitness.coverage if archive_best else None,
+             "archive_best_fitness": archive_best[0].total_fitness() if archive_best else 0.0,
+@@ -803,6 +857,7 @@ class EvoISSTAFuzzer:
+                 llm_observed_params=[{"model": m, "temperature_sent": t, "response_model": r}
+                                      for m, t, r in sorted(self.usage_log.observed_params, key=str)],
+                 docker_images_end=docker_image_info(),
++                example_selection_cache_end=self._example_cache_digest(),
+             )
+             # Clean up the shared evaluation environment
+             if self._eval_env and not self._eval_env.early_exit_flag:
+diff --git a/agent/modules/fitness.py b/agent/modules/fitness.py
+index 765638a..fbc06fc 100644
+--- a/agent/modules/fitness.py
++++ b/agent/modules/fitness.py
+@@ -19,14 +19,16 @@ from typing import Optional
+ W_COVERAGE  = 0.45   # edge/block coverage (primary objective)
+ W_FEATURES  = 0.25   # corpus features (path diversity)
+ W_EXEC      = 0.10   # execution throughput (harness efficiency)
+-W_STABILITY = 0.20   # run stability (INITED + DONE reached)
++W_STABILITY = 0.20   # run stability (fuzzing finished normally)
+ 
+-# Normalisation denominators (tune to your target library)
++# Normalisation denominators of the original "fixed" mode (kept to reproduce old runs)
+ NORM_COVERAGE  = 2000.0   # expected max edges for a single harness
+ NORM_FEATURES  = 8000.0   # expected max corpus features
+ NORM_EXEC      = 2000.0   # exec/s considered "fast"
+ 
+-CRASH_BONUS    = 0.60     # extra score for harnesses that find real bugs
++CRASH_BONUS    = 0.60     # default lambda: extra score for a crash inside the target library
++
++NORMALIZATION_MODES = ("pool_max", "fixed", "rrf")
+ 
+ # Trial outcome stored with every FitnessScores. Only STATUS_OK carries measured
+ # libFuzzer statistics; every other status stores None for them, never 0.
+@@ -45,46 +47,155 @@ def prompt_value(value: Optional[float]) -> str:
+     return str(0 if value is None else value)
+ 
+ 
++# ---------------------------------------------------------------------------
++# Crash vs. harness-failure classification
++# ---------------------------------------------------------------------------
++
++# Events that are defects of the harness/run, never a library bug (no crash bonus).
++HARNESS_FAILURE_TYPES = ("oom", "timeout", "deadly_signal", "const_input_overwrite", "leak", "other_libfuzzer")
++
++_EVENT_PATTERNS: tuple[tuple[str, re.Pattern], ...] = (
++    ("oom",                   re.compile(r"ERROR: libFuzzer: out-of-memory")),
++    ("timeout",               re.compile(r"ERROR: libFuzzer: timeout")),
++    ("deadly_signal",         re.compile(r"ERROR: libFuzzer: deadly signal")),
++    ("const_input_overwrite", re.compile(r"ERROR: libFuzzer: fuzz target overwrites its const input")),
++    ("other_libfuzzer",       re.compile(r"ERROR: libFuzzer: (?!out-of-memory|timeout|deadly signal|"
++                                         r"fuzz target overwrites its const input)")),
++    ("leak",                  re.compile(r"ERROR: LeakSanitizer")),
++    # candidate library defects: decided by stack location
++    ("sanitizer",             re.compile(r"ERROR: (?:AddressSanitizer|MemorySanitizer|UndefinedBehaviorSanitizer)"
++                                         r"|runtime error: |== Java Exception")),
++)
++
++# "#3 0x55d0... in func_name /src/proj/file.c:12:3"
++_FRAME_RE = re.compile(r"^\s*#\d+\s+0x[0-9a-fA-F]+\s+in\s+.+?\s+(/\S+?):\d+", re.MULTILINE)
++# fuzzer / sanitizer runtime and system sources, never the target library
++_RUNTIME_PREFIXES = ("/src/llvm-project/", "/src/libfuzzer/", "/src/aflplusplus/", "/usr/")
++
++
++def classify_events(content: str) -> dict[str, int]:
++    """Count crash / failure events in a libFuzzer log by type (types with 0 omitted)."""
++    counts = {name: len(pat.findall(content)) for name, pat in _EVENT_PATTERNS}
++    return {k: v for k, v in counts.items() if v}
++
++
++def crash_location(report: str, scope_root: Optional[str], harness_path: Optional[str]) -> str:
++    """'library' if any stack frame lies in the target library's source tree (scope_root),
++    excluding the harness file and runtime frames; else 'harness' if a frame is in the harness;
++    'other' if frames exist elsewhere; 'unknown' if the report has no symbolized frames."""
++    paths = [p for p in _FRAME_RE.findall(report) if not p.startswith(_RUNTIME_PREFIXES)]
++    if not paths:
++        return "unknown"
++    if scope_root and any(p.startswith(scope_root) and p != harness_path for p in paths):
++        return "library"
++    if harness_path and harness_path in paths:
++        return "harness"
++    return "other"
++
++
++# ---------------------------------------------------------------------------
++# Normalisation (process-wide, configured per run by EvoISSTAFuzzer)
++# ---------------------------------------------------------------------------
++
++class FitnessConfig:
++    """How objective terms are normalised and how large the crash bonus is.
++
++    pool_max: x / max(x over all harnesses evaluated so far in this run)
++    fixed:    min(x / NORM_*, 1)  (original behaviour; saturates on large targets)
++    rrf:      weighted reciprocal-rank fusion, (k+1)/(k+rank) per objective over the same pool
++    """
++
++    def __init__(self, mode: str = "fixed", crash_bonus: float = CRASH_BONUS, rrf_k: int = 60) -> None:
++        if mode not in NORMALIZATION_MODES:
++            raise ValueError(f"fitness_normalization must be one of {NORMALIZATION_MODES}, got {mode!r}")
++        self.mode = mode
++        self.crash_bonus = float(crash_bonus)
++        self.rrf_k = int(rrf_k)
++        self.pool: dict[str, list[float]] = {"coverage": [], "features": [], "exec_per_sec": []}
++
++    def observe(self, scores: "FitnessScores") -> None:
++        if scores.status != STATUS_OK:
++            return
++        for k in self.pool:
++            v = getattr(scores, k)
++            if v is not None:
++                self.pool[k].append(float(v))
++
++    def term(self, objective: str, value: Optional[float]) -> float:
++        v = float(value or 0)
++        if self.mode == "fixed":
++            norm = {"coverage": NORM_COVERAGE, "features": NORM_FEATURES, "exec_per_sec": NORM_EXEC}[objective]
++            return min(v / norm, 1.0)
++        values = self.pool[objective]
++        if self.mode == "pool_max":
++            top = max(values) if values else 0.0
++            return min(v / top, 1.0) if top > 0 else 0.0
++        rank = 1 + sum(1 for x in values if x > v)          # rrf
++        return (self.rrf_k + 1) / (self.rrf_k + rank)
++
++    def state(self) -> dict:
++        return {"mode": self.mode, "crash_bonus": self.crash_bonus, "rrf_k": self.rrf_k,
++                "n_observed": len(self.pool["coverage"]),
++                "max": {k: (max(v) if v else None) for k, v in self.pool.items()}}
++
++
++_CONFIG = FitnessConfig()
++
++
++def configure_fitness(mode: str, crash_bonus: float = CRASH_BONUS, rrf_k: int = 60) -> FitnessConfig:
++    """Start a fresh normalisation pool for one run."""
++    global _CONFIG
++    _CONFIG = FitnessConfig(mode, crash_bonus, rrf_k)
++    return _CONFIG
++
++
++def fitness_config() -> FitnessConfig:
++    return _CONFIG
++
++
+ @dataclass
+ class FitnessScores:
+     """
+     Multi-dimensional fitness vector for one harness genome.
+ 
+     All raw values come from libFuzzer log parsing.
+-    ``total()`` returns a scalar in [0, ~1.6] for ranking.
++    ``total()`` returns a scalar in [0, 1 + lambda] for ranking.
+     """
+ 
+     # --- raw metrics from fuzzing log (None = not measured, see status) ---
+     coverage: Optional[int]   = None      # libFuzzer 'cov:' value (edges covered)
+     features: Optional[int]   = None      # libFuzzer 'ft:'  value (corpus features)
+     exec_per_sec: Optional[float] = None  # libFuzzer 'exec/s:' (throughput)
+-    stability: Optional[float]    = None  # 1.0 = DONE reached, 0.5 = partial, 0.0 = hung
++    stability: Optional[float]    = None  # 1.0 = finished normally, 0.5 = partial, 0.0 = hung
+ 
+     # --- derived / boolean ---
+-    crash_found: bool   = False   # harness triggered a real sanitizer error
++    crash_found: bool   = False   # any crash or harness-failure event in the trial (informational)
+     compile_ok:  bool   = False   # False → total() == 0
+ 
+     status: str = STATUS_NOT_EVALUATED
+     error_message: Optional[str] = None
+ 
++    # --- crash classification (crash bonus only for library_crash) ---
++    crash_events: dict = field(default_factory=dict)   # event type -> count
++    library_crash: bool = False                         # sanitizer crash with a frame in the library
++    crash_location: Optional[str] = None                # library | harness | other | unknown
++    discard_reason: Optional[str] = None                # why a crash / trial earned no bonus
++
+     def total(self) -> float:
+         """Scalar fitness used for selection and archiving."""
+         if not self.compile_ok:
+             return 0.0
+-        bonus = CRASH_BONUS if self.crash_found else 0.0
++        cfg = _CONFIG
++        bonus = cfg.crash_bonus if self.library_crash else 0.0
+         if self.status != STATUS_OK:
+             # No statistics were measured: the objective terms contribute nothing to
+             # selection. The record keeps None (with the status), not a fake 0.
+             return bonus
+ 
+-        cov_norm   = min(self.coverage / NORM_COVERAGE,             1.0)  # type: ignore[operator]
+-        feat_norm  = min((self.features or 0) / NORM_FEATURES,      1.0)
+-        exec_norm  = min((self.exec_per_sec or 0.0) / NORM_EXEC,    1.0)
+-
+         base = (
+-            W_COVERAGE  * cov_norm   +
+-            W_FEATURES  * feat_norm  +
+-            W_EXEC      * exec_norm  +
++            W_COVERAGE  * cfg.term("coverage", self.coverage)          +
++            W_FEATURES  * cfg.term("features", self.features)          +
++            W_EXEC      * cfg.term("exec_per_sec", self.exec_per_sec)  +
+             W_STABILITY * (self.stability or 0.0)
+         )
+         return base + bonus
+@@ -107,13 +218,21 @@ class FitnessScores:
+                 better_in_one = True
+         return better_in_one
+ 
++    def apply_crash_location(self, location: str) -> None:
++        """Set crash_location / library_crash / discard_reason for a trial with sanitizer events."""
++        self.crash_location = location
++        self.library_crash = location == "library"
++        self.discard_reason = None if self.library_crash else {
++            "harness": "crash_in_harness", "other": "crash_outside_library",
++        }.get(location, "crash_location_unknown")
++
+     def __repr__(self) -> str:
+         exec_s = "None" if self.exec_per_sec is None else f"{self.exec_per_sec:.0f}"
+         stable = "None" if self.stability is None else f"{self.stability:.2f}"
+         return (
+             f"FitnessScores(status={self.status}, cov={self.coverage}, ft={self.features}, "
+             f"exec={exec_s}/s, stable={stable}, "
+-            f"crash={self.crash_found}, total={self.total():.4f})"
++            f"crash={self.crash_found}, library_crash={self.library_crash}, total={self.total():.4f})"
+         )
+ 
+ 
+@@ -121,7 +240,8 @@ class FitnessScores:
+ # Log parsing
+ # ---------------------------------------------------------------------------
+ 
+-def extract_coverage_from_log(log_path: Path) -> FitnessScores:
++def extract_coverage_from_log(log_path: Path, scope_root: Optional[str] = None,
++                              harness_path: Optional[str] = None) -> FitnessScores:
+     """
+     Parse a libFuzzer log file and return a populated FitnessScores.
+ 
+@@ -131,7 +251,9 @@ def extract_coverage_from_log(log_path: Path) -> FitnessScores:
+       #16384    DONE   cov: 48  ft: 72  corp: 4/8b  exec/s: 512  rss: 40Mb
+       stat::number_of_executed_units: 16384
+ 
+-    With -fork=1 the status lines read "#N: cov: X ft: Y corp: Z exec/s: E ...".
++    With -fork=1 the status lines read "#N: cov: X ft: Y corp: Z exec/s: E ..." and a
++    normal finish ends with "INFO: exiting: ...". Fork-mode logs carry no stack traces,
++    so the crash location stays 'unknown' until the crash input is reproduced.
+     Returns status NO_LOG / NO_STATS (statistics None) when nothing was measured.
+     """
+     scores = FitnessScores(status=STATUS_NO_LOG)
+@@ -171,23 +293,21 @@ def extract_coverage_from_log(log_path: Path) -> FitnessScores:
+         scores.exec_per_sec = float(exec_matches[-1])
+ 
+     # ---- stability ----
+-    if "DONE" in content:
+-        scores.stability = 1.0
+-    elif "INITED" in content:
++    if "DONE" in content or "INFO: exiting:" in content:
++        scores.stability = 1.0   # finished normally (non-fork DONE / fork-mode exit line)
++    elif "INITED" in content or cov_matches:
+         scores.stability = 0.5   # started but didn't finish cleanly
+     else:
+         scores.stability = 0.0   # never initialised (likely hung or crashed early)
+ 
+-    # ---- crash detection ----
+-    crash_indicators = [
+-        "ERROR: AddressSanitizer",
+-        "ERROR: LeakSanitizer",
+-        "ERROR: libFuzzer:",
+-        "== Java Exception",
+-        "SUMMARY: AddressSanitizer",
+-    ]
+-    if any(ind in content for ind in crash_indicators):
+-        scores.crash_found = True
++    # ---- crash / harness-failure classification ----
++    scores.crash_events = classify_events(content)
++    scores.crash_found = bool(scores.crash_events)
++    failures = sorted(t for t in scores.crash_events if t in HARNESS_FAILURE_TYPES)
++    if failures:
++        scores.discard_reason = "harness_failure:" + ",".join(failures)
++    if "sanitizer" in scores.crash_events:
++        scores.apply_crash_location(crash_location(content, scope_root, harness_path))
+ 
+     scores.compile_ok = True
+     return scores
+diff --git a/agent/modules/population.py b/agent/modules/population.py
+index f3a7fa5..8ee6bf9 100644
+--- a/agent/modules/population.py
++++ b/agent/modules/population.py
+@@ -102,6 +102,10 @@ class HarnessGenome:
+                 "exec_per_sec": self.fitness.exec_per_sec,
+                 "stability":    self.fitness.stability,
+                 "crash_found":  self.fitness.crash_found,
++                "crash_events":   self.fitness.crash_events,
++                "library_crash":  self.fitness.library_crash,
++                "crash_location": self.fitness.crash_location,
++                "discard_reason": self.fitness.discard_reason,
+                 "compile_ok":   self.fitness.compile_ok,
+                 "total":        self.fitness.total(),
+             },
+diff --git a/bench_cfg.py b/bench_cfg.py
+index 216b735..45e1fa5 100644
+--- a/bench_cfg.py
++++ b/bench_cfg.py
+@@ -102,6 +102,14 @@ class BenchConfig:
+         self.no_log = self.config.get('no_log', False)
+         self.ignore_crashes = self.config.get('ignore_crashes', False)
+ 
++        # fitness (agent/modules/fitness.py): normalisation, crash bonus lambda, crash reproduction
++        self.fitness_normalization = self.config.get('fitness_normalization', "pool_max")
++        if self.fitness_normalization not in ("pool_max", "fixed", "rrf"):
++            sys.exit(f"ERROR: fitness_normalization must be pool_max|fixed|rrf, got {self.fitness_normalization!r}")
++        self.crash_bonus = float(self.config.get('crash_bonus', 0.60))   # lambda; 0 for the ablation
++        self.rrf_k = int(self.config.get('rrf_k', 60))
++        self.crash_repro_max = int(self.config.get('crash_repro_max', 3))  # crash inputs reproduced per trial
++
+         # pinned toolchain: do not pull newer OSS-Fuzz base images during a run (utils/oss_fuzz_utils.py)
+         self.oss_fuzz_pull_images = bool(self.config.get('oss_fuzz_pull_images', False))
+         os.environ["LLMGA_OSSFUZZ_PULL"] = "1" if self.oss_fuzz_pull_images else "0"
+diff --git a/scripts/p04_reclassify_logs.py b/scripts/p04_reclassify_logs.py
+new file mode 100644
+index 0000000..f29dca0
+--- /dev/null
++++ b/scripts/p04_reclassify_logs.py
+@@ -0,0 +1,56 @@
++"""PATCH 4: re-classify crash events in existing logs (old rule vs new rule).
++
++Old rule (pre-PATCH 4): a trial got the crash bonus if its log contained any of
++"ERROR: AddressSanitizer", "ERROR: LeakSanitizer", "ERROR: libFuzzer:", "== Java Exception",
++"SUMMARY: AddressSanitizer".
++New rule: libFuzzer errors (oom, timeout, deadly signal, const-input overwrite, other) and
++leaks are harness failures (no bonus); sanitizer reports are library crashes only if a stack
++frame lies in the library source tree. Logs without stack frames (all -fork=1 trials) cannot
++be located from the log alone and are reported as 'location unknown'.
++
++Usage: python scripts/p04_reclassify_logs.py <dir> [<dir> ...] [--glob '*.log']
++"""
++import argparse
++import re
++import sys
++from collections import Counter
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
++from agent.modules.fitness import HARNESS_FAILURE_TYPES, classify_events  # noqa: E402
++
++OLD_MARKERS = ("ERROR: AddressSanitizer", "ERROR: LeakSanitizer", "ERROR: libFuzzer:",
++               "== Java Exception", "SUMMARY: AddressSanitizer")
++FRAME = re.compile(r"^\s*#\d+\s+0x[0-9a-fA-F]+\s+in\s+.+?\s+/\S+?:\d+", re.MULTILINE)
++
++ap = argparse.ArgumentParser()
++ap.add_argument("dirs", nargs="+")
++ap.add_argument("--glob", default="*.log")
++args = ap.parse_args()
++
++files = [p for d in args.dirs for p in Path(d).rglob(args.glob) if p.is_file()]
++events_total: Counter = Counter()
++old_bonus = 0
++new_classes: Counter = Counter()
++for f in files:
++    text = f.read_text(encoding="utf-8", errors="ignore")
++    ev = classify_events(text)
++    events_total.update(ev)
++    if any(m in text for m in OLD_MARKERS):
++        old_bonus += 1
++    if not ev:
++        continue
++    if "sanitizer" in ev:
++        new_classes["sanitizer crash, stack in log (location decidable)" if FRAME.search(text)
++                    else "sanitizer crash, no stack in log (location unknown -> no bonus until reproduced)"] += 1
++    elif all(t in HARNESS_FAILURE_TYPES for t in ev):
++        new_classes["harness failure only (no bonus)"] += 1
++
++print(f"files scanned: {len(files)}  (dirs: {', '.join(args.dirs)}, glob: {args.glob})")
++print(f"OLD rule - files that earned the crash bonus: {old_bonus}")
++print("NEW rule - files by class:")
++for k, v in sorted(new_classes.items()):
++    print(f"  {v:5d}  {k}")
++print("event counts by type (all files):")
++for k, v in sorted(events_total.items()):
++    print(f"  {v:6d}  {k}{'  [harness failure]' if k in HARNESS_FAILURE_TYPES else ''}")
+diff --git a/tests/fixtures/p04/fork_sanitizer.log b/tests/fixtures/p04/fork_sanitizer.log
+new file mode 100644
+index 0000000..86eb23e
+--- /dev/null
++++ b/tests/fixtures/p04/fork_sanitizer.log
+@@ -0,0 +1,7 @@
++INFO: -fork=1: fuzzing in separate process(s)
++#16: cov: 76 ft: 77 corp: 1 exec/s: 0 oom/timeout/crash: 0/0/1 time: 0s job: 2 dft_time: 0
++==16==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x5020000004b5 at pc 0x5644d77b9cd7 bp 0x7fffe9be79d0 sp 0x7fffe9be79c8
++#37: cov: 94 ft: 95 corp: 4 exec/s: 0 oom/timeout/crash: 0/0/2 time: 0s job: 3 dft_time: 0
++==25==ERROR: LeakSanitizer: detected memory leaks
++INFO: fuzzed for 61 seconds, wrapping up soon
++INFO: exiting: 1 time: 61s
+diff --git a/tests/fixtures/p04/harness_crash.log b/tests/fixtures/p04/harness_crash.log
+new file mode 100644
+index 0000000..11b70e6
+--- /dev/null
++++ b/tests/fixtures/p04/harness_crash.log
+@@ -0,0 +1,7 @@
++#2	INITED cov: 300 ft: 310 corp: 1/1b exec/s: 0 rss: 53Mb
++==11==ERROR: AddressSanitizer: stack-buffer-overflow on address 0x7ffc8c73cc90 at pc 0x562b1eafacd7 bp 0x7ffc8c73cc90 sp 0x7ffc8c73cc88
++WRITE of size 8 at 0x7ffc8c73cc90 thread T0
++    #0 0x562b1e9b11a0 in __asan_memcpy /src/llvm-project/compiler-rt/lib/asan/asan_interceptors_memintrinsics.cpp:63:3
++    #1 0x562b1ea8f2c3 in LLVMFuzzerTestOneInput /src/gpac/testsuite/oss-fuzzers/fuzz_m2ts_probe.c:37:5
++    #2 0x562b1e9a0100 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
++SUMMARY: AddressSanitizer: stack-buffer-overflow /src/gpac/testsuite/oss-fuzzers/fuzz_m2ts_probe.c:37:5 in LLVMFuzzerTestOneInput
+diff --git a/tests/fixtures/p04/library_crash.log b/tests/fixtures/p04/library_crash.log
+new file mode 100644
+index 0000000..b0394da
+--- /dev/null
++++ b/tests/fixtures/p04/library_crash.log
+@@ -0,0 +1,8 @@
++#2	INITED cov: 300 ft: 310 corp: 1/1b exec/s: 0 rss: 53Mb
++==11==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x502000000654 at pc 0x562b1eafacd7 bp 0x7ffc8c73cc90 sp 0x7ffc8c73cc88
++READ of size 1 at 0x502000000654 thread T0
++    #0 0x562b1eafacd6 in gf_list_enum /src/gpac/src/utils/list.c:753:12
++    #1 0x562b1eaf0a11 in visual_2d_draw_frame /src/gpac/src/compositor/visual_manager_2d.c:1188:9
++    #2 0x562b1ea8f2c3 in LLVMFuzzerTestOneInput /src/gpac/testsuite/oss-fuzzers/fuzz_m2ts_probe.c:41:5
++    #3 0x562b1e9a0100 in fuzzer::Fuzzer::ExecuteCallback(unsigned char const*, unsigned long) /src/llvm-project/compiler-rt/lib/fuzzer/FuzzerLoop.cpp:614:13
++SUMMARY: AddressSanitizer: heap-buffer-overflow /src/gpac/src/utils/list.c:753:12 in gf_list_enum
+diff --git a/tests/fixtures/p04/oom.log b/tests/fixtures/p04/oom.log
+new file mode 100644
+index 0000000..ca554c2
+--- /dev/null
++++ b/tests/fixtures/p04/oom.log
+@@ -0,0 +1,7 @@
++INFO: Seed: 1234
++INFO: Loaded 1 modules   (1506 inline 8-bit counters): 1506 [0x55a8bddba628, 0x55a8bddbf418),
++#2	INITED cov: 120 ft: 130 corp: 1/1b exec/s: 0 rss: 53Mb
++#64	NEW    cov: 140 ft: 160 corp: 2/9b lim: 4096 exec/s: 0 rss: 2600Mb
++==21== ERROR: libFuzzer: out-of-memory (used: 2600Mb; exceeds: 2560Mb)
++   To change the out-of-memory limit use -rss_limit_mb=<N>
++SUMMARY: libFuzzer: out-of-memory
+diff --git a/tests/test_p02_coverage.py b/tests/test_p02_coverage.py
+index e30da79..737cc06 100644
+--- a/tests/test_p02_coverage.py
++++ b/tests/test_p02_coverage.py
+@@ -113,7 +113,7 @@ def test_log_without_stats_records_none_not_zero():
+     assert s.coverage is None and s.features is None and s.exec_per_sec is None
+     s.compile_ok = True
+     assert s.total() == 0.0
+-    s.crash_found = True
++    s.library_crash = True          # PATCH 4: the bonus requires a crash inside the library
+     assert s.total() == CRASH_BONUS
+ 
+ 
+diff --git a/tests/test_p04_fitness.py b/tests/test_p04_fitness.py
+new file mode 100644
+index 0000000..1f1afad
+--- /dev/null
++++ b/tests/test_p04_fitness.py
+@@ -0,0 +1,128 @@
++"""PATCH 4: crash vs harness failure, configurable crash bonus, non-saturating normalisation."""
++from pathlib import Path
++
++import pytest
++
++from agent.modules import fitness as F
++from agent.modules.fitness import (STATUS_OK, FitnessScores, classify_events, configure_fitness,
++                                   crash_location, extract_coverage_from_log)
++
++FIX = Path(__file__).parent / "fixtures"
++GPAC_ROOT = "/src/gpac/"
++GPAC_HARNESS = "/src/gpac/testsuite/oss-fuzzers/fuzz_m2ts_probe.c"
++
++
++@pytest.fixture(autouse=True)
++def _fresh_config():
++    configure_fitness("fixed")
++    yield
++    configure_fitness("fixed")
++
++
++def _parse(name):
++    return extract_coverage_from_log(FIX / "p04" / name, scope_root=GPAC_ROOT, harness_path=GPAC_HARNESS)
++
++
++# ---- acceptance criteria ----------------------------------------------------
++
++def test_out_of_memory_is_not_a_vulnerability():
++    s = _parse("oom.log")
++    assert s.crash_events == {"oom": 1}
++    assert s.library_crash is False
++    assert s.discard_reason == "harness_failure:oom"
++    assert s.total() < F.CRASH_BONUS   # no bonus
++
++
++def test_real_in_library_sanitizer_crash_is_counted():
++    s = _parse("library_crash.log")
++    assert s.crash_events == {"sanitizer": 1}
++    assert (s.crash_location, s.library_crash, s.discard_reason) == ("library", True, None)
++    assert s.total() >= F.CRASH_BONUS
++
++
++def test_harness_only_crash_is_not_counted():
++    s = _parse("harness_crash.log")
++    assert (s.crash_location, s.library_crash, s.discard_reason) == ("harness", False, "crash_in_harness")
++
++
++def test_fork_log_without_stack_is_unknown_until_reproduced():
++    s = _parse("fork_sanitizer.log")
++    assert s.crash_events == {"sanitizer": 1, "leak": 1}
++    assert (s.crash_location, s.library_crash, s.discard_reason) == ("unknown", False, "crash_location_unknown")
++    assert s.stability == 1.0                       # fork-mode "INFO: exiting:" = normal finish
++    s.apply_crash_location("library")               # what a reproduced library stack yields
++    assert s.library_crash and s.discard_reason is None
++
++
++@pytest.mark.parametrize("line, kind", [
++    ("==1== ERROR: libFuzzer: timeout after 31 seconds", "timeout"),
++    ("==1== ERROR: libFuzzer: deadly signal", "deadly_signal"),
++    ("==1== ERROR: libFuzzer: fuzz target overwrites its const input", "const_input_overwrite"),
++    ("==1== ERROR: libFuzzer: fuzz target exited", "other_libfuzzer"),
++    ("==1==ERROR: LeakSanitizer: detected memory leaks", "leak"),
++    ("==1==ERROR: AddressSanitizer: SEGV on unknown address 0x0", "sanitizer"),
++    ("src/x.c:3:5: runtime error: signed integer overflow", "sanitizer"),
++])
++def test_event_types(line, kind):
++    assert classify_events(line) == {kind: 1}
++
++
++def test_runtime_frames_are_ignored():
++    rep = "    #0 0x1 in __asan_memcpy /src/llvm-project/compiler-rt/lib/asan/x.cpp:1:1\n"
++    assert crash_location(rep, GPAC_ROOT, GPAC_HARNESS) == "unknown"
++
++
++# ---- crash bonus lambda -----------------------------------------------------
++
++def test_lambda_zero_removes_the_bonus():
++    configure_fitness("fixed", crash_bonus=0.0)
++    s = _parse("library_crash.log")
++    assert s.library_crash and s.total() < 1.0
++
++
++# ---- normalisation ----------------------------------------------------------
++
++def _ok(cov, ft, ex):
++    return FitnessScores(coverage=cov, features=ft, exec_per_sec=ex, stability=1.0,
++                         compile_ok=True, status=STATUS_OK)
++
++
++SMOKE = [(9513, 24875, 4593), (9478, 24276, 4777), (9482, 24598, 4570), (9545, 24568, 4929)]  # ada-url smoke run
++
++
++def test_fixed_mode_reproduces_the_saturation():
++    totals = {round(_ok(*v).total(), 6) for v in SMOKE}
++    assert totals == {1.0}   # 0.45 + 0.25 + 0.10 + 0.20*stability(1.0): every harness ties
++
++
++@pytest.mark.parametrize("mode", ["pool_max", "rrf"])
++def test_pool_modes_break_the_tie(mode):
++    cfg = configure_fitness(mode)
++    scores = [_ok(*v) for v in SMOKE]
++    for s in scores:
++        cfg.observe(s)
++    totals = [s.total() for s in scores]
++    assert len(set(round(t, 9) for t in totals)) == len(totals)          # no ties
++    assert all(0.0 <= t <= 1.0 for t in totals)
++    best_cov = max(range(len(SMOKE)), key=lambda i: SMOKE[i][0])
++    assert totals[best_cov] > min(totals)
++
++
++def test_pool_max_values():
++    cfg = configure_fitness("pool_max")
++    a, b = _ok(100, 10, 5.0), _ok(50, 20, 10.0)
++    cfg.observe(a); cfg.observe(b)
++    assert a.total() == pytest.approx(0.45 * 1 + 0.25 * 0.5 + 0.10 * 0.5 + 0.20)
++    assert b.total() == pytest.approx(0.45 * 0.5 + 0.25 * 1 + 0.10 * 1 + 0.20)
++    assert cfg.state()["max"] == {"coverage": 100.0, "features": 20.0, "exec_per_sec": 10.0}
++
++
++def test_unmeasured_trials_do_not_enter_the_pool():
++    cfg = configure_fitness("pool_max")
++    cfg.observe(FitnessScores(status="NO_STATS", compile_ok=True))
++    assert cfg.state()["n_observed"] == 0
++
++
++def test_unknown_mode_rejected():
++    with pytest.raises(ValueError):
++        configure_fitness("minmax")
