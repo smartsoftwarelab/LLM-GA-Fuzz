@@ -1,0 +1,250 @@
+{
+  "cap_s": 120,
+  "seed": 20261016,
+  "quota": {
+    "c": 3,
+    "c++": 9
+  },
+  "selected": [
+    {
+      "project": "coturn",
+      "language": "c",
+      "signature": "bool stun_set_allocate_response_str(uint8_t *, size_t *, stun_tid *, const ioa_addr *, const ioa_addr *, const ioa_addr *, uint32_t, uint32_t, int, const uint8_t *, uint64_t, char *)",
+      "function": "stun_set_allocate_response_str",
+      "target_name": "FuzzStun",
+      "target_path": "/src/coturn/fuzzing/FuzzStun.c",
+      "yaml": "coturn.yaml",
+      "yaml_sha256": "25589ae309a8ed4e80c4981db30aa520032df2df8760fe5aebb546a2ac33179c",
+      "screen": {
+        "timestamp": "2026-10-16T10:30:23.967385+00:00",
+        "project": "coturn",
+        "language": "c",
+        "build_image_s": 38.0,
+        "build_fuzzers_s": 8.0,
+        "cap_s": 120,
+        "result": "ok",
+        "tail": ""
+      }
+    },
+    {
+      "project": "inih",
+      "language": "c",
+      "signature": "int ini_parse_file(FILE *, ini_handler, void *)",
+      "function": "ini_parse_file",
+      "target_name": "inihfuzz",
+      "target_path": "/src/inih/inihfuzz.c",
+      "yaml": "inih.yaml",
+      "yaml_sha256": "e10e814e2cf8e9f1c07e98d04807d2dd49647e77f55e17d92f5f7dda6dce7826",
+      "screen": {
+        "timestamp": "2026-10-16T10:34:29.979357+00:00",
+        "project": "inih",
+        "language": "c",
+        "build_image_s": 5.6,
+        "build_fuzzers_s": 1.1,
+        "cap_s": 120,
+        "result": "ok",
+        "tail": ""
+      }
+    },
+    {
+      "project": "opensips",
+      "language": "c",
+      "signature": "int start_timer_extra_processes(int *)",
+      "function": "start_timer_extra_processes",
+      "target_name": "fuzz_csv_parser",
+      "target_path": "/src/opensips/parser/fuzz_csv_parser.c",
+      "yaml": "opensips.yaml",
+      "yaml_sha256": "94f26d582bdcaf9246aea3c21542a5a4f7d9164daa79368b7c211bacc3813456",
+      "screen": {
+        "timestamp": "2026-10-16T10:36:18.108559+00:00",
+        "project": "opensips",
+        "language": "c",
+        "build_image_s": 21.3,
+        "build_fuzzers_s": 86.8,
+        "cap_s": 120,
+        "result": "ok",
+        "tail": ""
+      }
+    },
+    {
+      "project": "brotli",
+      "language": "c++",
+      "signature": "int BrotliSafeReadBits32Slow(const BrotliBitReader *, uint64_t, uint64_t *)",
+      "function": "BrotliSafeReadBits32Slow",
+      "target_name": "decode_fuzzer",
+      "target_path": "/src/brotli/c/fuzz/decode_fuzzer.c",
+      "yaml": "brotli.yaml",
+      "yaml_sha256": "08aac457b995e9949be0fe578d6d233c2c2e56337654b7724d1e3716aef22b53",
+      "screen": {
+        "timestamp": "2026-10-16T10:45:07.313788+00:00",
+        "project": "brotli",
+        "language": "c++",
+        "build_image_s": 11.4,
+        "build_fuzzers_s": 20.8,
+        "cap_s": 120,
+        "result": "ok",
+        "tail": ""
+      }
+    },
+    {
+      "project": "neomutt",
+      "language": "c++",
+      "signature": "int mutt_resend_message(FILE *, struct Mailbox *, struct Email *, struct ConfigSubset *)",
+      "function": "mutt_resend_message",
+      "target_name": "address-fuzz",
+      "target_path": "/src/neomutt/fuzz/address.c",
+      "yaml": "neomutt.yaml",
+      "yaml_sha256": "dde567b57bcfb5c89baa1ad5aa48b7ca8247695895c2b2e85f4ea587e056f596",
+      "screen": {
+        "timestamp": "2026-10-16T10:45:50.115626+00:00",
+        "project": "neomutt",
+        "language": "c++",
+        "build_image_s": 14.1,
+        "build_fuzzers_s": 28.7,
+        "cap_s": 120,
+        "result": "ok",
+        "tail": ""
+      }
+    },
+    {
+      "project": "hostap",
+      "language": "c++",
+      "signature": "void wpa_supplicant_deinit(struct wpa_global *)",
+      "function": "wpa_supplicant_deinit",
+      "target_name": "json",
+      "target_path": "/src/hostap/tests/fuzzing/json/json.c",
+      "yaml": "hostap.yaml",
+      "yaml_sha256": "952f0eb47924bfa658f508b364b75da22a13cea0622ef21a249948a2f67efa32",
+      "screen": {
+        "timestamp": "2026-10-16T10:47:30.929639+00:00",
+        "project": "hostap",
+        "language": "c++",
+        "build_image_s": 10.6,
+        "build_fuzzers_s": 90.2,
+        "cap_s": 120,
+        "result": "ok",
+        "tail": ""
+      }
+    },
+    {
+      "project": "minizip",
+      "language": "c++",
+      "signature": "int32_t mz_zip_attrib_is_symlink(uint32_t, int32_t)",
+      "function": "mz_zip_attrib_is_symlink",
+      "target_name": "zip_fuzzer",
+      "target_path": "/src/minizip-ng/test/fuzz/zip_fuzzer.c",
+      "yaml": "minizip.yaml",
+      "yaml_sha256": "0ac7f9992b7dc4f338086f5f80fa53207630a59df00d13866c43971a9d08558d",
+      "screen": {
+        "timestamp": "2026-10-16T10:50:36.544930+00:00",
+        "project": "minizip",
+        "language": "c++",
+        "build_image_s": 14.5,
+        "build_fuzzers_s": 29.2,
+        "cap_s": 120,
+        "result": "ok",
+        "tail": ""
+      }
+    },
+    {
+      "project": "ibmswtpm2",
+      "language": "c++",
+      "signature": "TPM_RC TPM2_Import(Import_In *, Import_Out *)",
+      "function": "TPM2_Import",
+      "target_name": "fuzz_tpm_server",
+      "target_path": "/src/ibmswtpm2/src/fuzzer.cc",
+      "yaml": "ibmswtpm2.yaml",
+      "yaml_sha256": "c4e64d8ad0efbbeb95670c5c4915c282da9170690e63fb78356c7ef3fc3ad8aa",
+      "screen": {
+        "timestamp": "2026-10-16T10:50:48.908242+00:00",
+        "project": "ibmswtpm2",
+        "language": "c++",
+        "build_image_s": 8.2,
+        "build_fuzzers_s": 4.1,
+        "cap_s": 120,
+        "result": "ok",
+        "tail": ""
+      }
+    },
+    {
+      "project": "cctz",
+      "language": "c++",
+      "signature": "string cctz::time_zone::version()",
+      "function": "_ZNK4cctz9time_zone7versionEv",
+      "target_name": "fuzz_cctz",
+      "target_path": "/src/fuzz_cctz.cc",
+      "yaml": "cctz.yaml",
+      "yaml_sha256": "abc6f6b7cd244a13a16a7e92bb5a6e018915f65a8f387a230f3d8f880868bd00",
+      "screen": {
+        "timestamp": "2026-10-16T10:55:28.712794+00:00",
+        "project": "cctz",
+        "language": "c++",
+        "build_image_s": 20.2,
+        "build_fuzzers_s": 51.8,
+        "cap_s": 120,
+        "result": "ok",
+        "tail": ""
+      }
+    },
+    {
+      "project": "libcbor",
+      "language": "c++",
+      "signature": "size_t cbor_refcount(const cbor_item_t *)",
+      "function": "cbor_refcount",
+      "target_name": "cbor_load_fuzzer",
+      "target_path": "/src/libcbor/oss-fuzz/cbor_load_fuzzer.cc",
+      "yaml": "libcbor.yaml",
+      "yaml_sha256": "9e2593553d5d850e8415fe69df2494413dac0f499cf8fc73764cd3405ac679d5",
+      "screen": {
+        "timestamp": "2026-10-16T10:58:07.069552+00:00",
+        "project": "libcbor",
+        "language": "c++",
+        "build_image_s": 12.6,
+        "build_fuzzers_s": 6.0,
+        "cap_s": 120,
+        "result": "ok",
+        "tail": ""
+      }
+    },
+    {
+      "project": "libzip",
+      "language": "c++",
+      "signature": "zip_source_t * zip_source_window_create(zip_source_t *, zip_uint64_t, zip_int64_t, zip_error_t *)",
+      "function": "zip_source_window_create",
+      "target_name": "zip_write_encrypt_pkware_file_fuzzer",
+      "target_path": "/src/libzip/ossfuzz/zip_write_encrypt_pkware_file_fuzzer.c",
+      "yaml": "libzip.yaml",
+      "yaml_sha256": "f2bb0fb35cceb5db2cc7313f515fe24d5238cf76007892960736e8e114b5c7fa",
+      "screen": {
+        "timestamp": "2026-10-16T11:01:19.488658+00:00",
+        "project": "libzip",
+        "language": "c++",
+        "build_image_s": 11.5,
+        "build_fuzzers_s": 22.4,
+        "cap_s": 120,
+        "result": "ok",
+        "tail": ""
+      }
+    },
+    {
+      "project": "libavc",
+      "language": "c++",
+      "signature": "WORD32 ih264_dpb_mgr_count_ref_frames(dpb_mgr_t *, WORD32, WORD32)",
+      "function": "ih264_dpb_mgr_count_ref_frames",
+      "target_name": "avc_enc_fuzzer",
+      "target_path": "/src/libavc/fuzzer/avc_enc_fuzzer.cpp",
+      "yaml": "libavc.yaml",
+      "yaml_sha256": "b2e11490bbc35fd68e51140f474dd80eb94a5f36f63cd994c5ae5e72c6bd7c0b",
+      "screen": {
+        "timestamp": "2026-10-16T11:02:16.487173+00:00",
+        "project": "libavc",
+        "language": "c++",
+        "build_image_s": 11.5,
+        "build_fuzzers_s": 45.4,
+        "cap_s": 120,
+        "result": "ok",
+        "tail": ""
+      }
+    }
+  ]
+}
