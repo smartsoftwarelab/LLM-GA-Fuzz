@@ -1,0 +1,13 @@
+A1: status=OK branches=4/6 functions=1/1 files=['/src/llmga-covref/tinylib.c'] inputs=2 failed=0 err=None
+A2: status=OK branches=4/6 functions=1/1 files=['/src/llmga-covref/tinylib.c'] inputs=2 failed=0 err=None
+A3: status=OK branches=4/6 functions=1/1 files=['/src/llmga-covref/tinylib.c'] inputs=2 failed=0 err=None
+B1: status=OK branches=6/6 functions=1/1 files=['/src/llmga-covref/tinylib.c'] inputs=4 failed=0 err=None
+C1: status=OK branches=3/6 functions=1/1 files=['/src/llmga-covref/tinylib.c'] inputs=1 failed=0 err=None
+PASS  A determinism (A1 == A2 == A3)
+PASS  A branches == 4/6
+PASS  B branches == 6/6
+PASS  C branches == 3/6
+PASS  functions 1/1 in A, B, C
+PASS  harness excluded, tinylib.c in scope
+OVERALL: PASS
+tool versions: LLVM (http://llvm.org/): |   LLVM version 22.0.0git |   Optimized build. | LLVM (http://llvm.org/): |   LLVM version 22.0.0git |   Optimized build.

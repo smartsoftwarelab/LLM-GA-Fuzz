@@ -1,0 +1,2449 @@
+{
+  "seed": 20261016,
+  "n": 12,
+  "counts": {
+    "c": 66,
+    "c++": 177
+  },
+  "quota": {
+    "c": 3,
+    "c++": 9
+  },
+  "order": {
+    "c": [
+      {
+        "project": "quickjs",
+        "language": "c",
+        "signature": "JSValue JS_NewArrayBuffer(JSContext *, uint8_t *, size_t, JSFreeArrayBufferDataFunc *, void *, BOOL)",
+        "function": "JS_NewArrayBuffer",
+        "target_name": "fuzz_regexp",
+        "target_path": "/src/quickjs/fuzz/fuzz_regexp.c",
+        "yaml": "quickjs.yaml",
+        "yaml_sha256": "3d803826609b1cf13b3df317bd971de902d8c7eeade7f3cbc384776028953ff6"
+      },
+      {
+        "project": "libunwind",
+        "language": "c",
+        "signature": "int access_mem(unw_addr_space_t, unw_word_t, unw_word_t *, int, void *)",
+        "function": "access_mem",
+        "target_name": "fuzz_libunwind",
+        "target_path": "/src/fuzz_libunwind.c",
+        "yaml": "libunwind.yaml",
+        "yaml_sha256": "cc65d8a0a59b4509dfbbbb01b69ca644229c0094255ed0385ea1fcf6e6e87534"
+      },
+      {
+        "project": "coturn",
+        "language": "c",
+        "signature": "bool stun_set_allocate_response_str(uint8_t *, size_t *, stun_tid *, const ioa_addr *, const ioa_addr *, const ioa_addr *, uint32_t, uint32_t, int, const uint8_t *, uint64_t, char *)",
+        "function": "stun_set_allocate_response_str",
+        "target_name": "FuzzStun",
+        "target_path": "/src/coturn/fuzzing/FuzzStun.c",
+        "yaml": "coturn.yaml",
+        "yaml_sha256": "25589ae309a8ed4e80c4981db30aa520032df2df8760fe5aebb546a2ac33179c"
+      },
+      {
+        "project": "freerdp",
+        "language": "c",
+        "signature": "BOOL client_auto_reconnect(freerdp *)",
+        "function": "client_auto_reconnect",
+        "target_name": "TestFuzzCryptoCertificateDataSetPEM",
+        "target_path": "/src/FreeRDP/libfreerdp/core/test/TestFuzzCryptoCertificateDataSetPEM.c",
+        "yaml": "freerdp.yaml",
+        "yaml_sha256": "ce5ec2acbca80c9383f40b54538a95869fda661f98896967ec12b1b9f51e5bbd"
+      },
+      {
+        "project": "inih",
+        "language": "c",
+        "signature": "int ini_parse_file(FILE *, ini_handler, void *)",
+        "function": "ini_parse_file",
+        "target_name": "inihfuzz",
+        "target_path": "/src/inih/inihfuzz.c",
+        "yaml": "inih.yaml",
+        "yaml_sha256": "e10e814e2cf8e9f1c07e98d04807d2dd49647e77f55e17d92f5f7dda6dce7826"
+      },
+      {
+        "project": "opensips",
+        "language": "c",
+        "signature": "int start_timer_extra_processes(int *)",
+        "function": "start_timer_extra_processes",
+        "target_name": "fuzz_csv_parser",
+        "target_path": "/src/opensips/parser/fuzz_csv_parser.c",
+        "yaml": "opensips.yaml",
+        "yaml_sha256": "94f26d582bdcaf9246aea3c21542a5a4f7d9164daa79368b7c211bacc3813456"
+      },
+      {
+        "project": "open5gs",
+        "language": "c",
+        "signature": "void ogs_gtp2_send_echo_response(ogs_gtp_xact_t *, uint8_t, uint8_t)",
+        "function": "ogs_gtp2_send_echo_response",
+        "target_name": "gtp_message_fuzz",
+        "target_path": "/src/open5gs/tests/fuzzing/gtp-message-fuzz.c",
+        "yaml": "open5gs.yaml",
+        "yaml_sha256": "eb08f8dba84f80b82b3de0a98a9d8b5bdafd43351fad6916d82dff13e753be15"
+      },
+      {
+        "project": "lighttpd",
+        "language": "c",
+        "signature": "void buffer_append_int(buffer *, intmax_t)",
+        "function": "buffer_append_int",
+        "target_name": "fuzz_burl",
+        "target_path": "/src/fuzz_burl.c",
+        "yaml": "lighttpd.yaml",
+        "yaml_sha256": "0eb7b79ad5e5ba04f6fae2bc4ea074d2a5630c64081493b153e085f145ca2818"
+      },
+      {
+        "project": "vulkan-loader",
+        "language": "c",
+        "signature": "PFN_vkVoidFunction vkGetDeviceProcAddr(VkDevice, const char *)",
+        "function": "vkGetDeviceProcAddr",
+        "target_name": "settings_fuzzer",
+        "target_path": "/src/settings_fuzzer.c",
+        "yaml": "vulkan-loader.yaml",
+        "yaml_sha256": "c592289539ee41aad62b9b89b9e5a90e07b45585ea9b24eeb402ea9fdb8ac64d"
+      },
+      {
+        "project": "libyang",
+        "language": "c",
+        "signature": "void lyplg_ext_print_info_extension_instance(struct lyspr_ctx *, const struct lysc_ext_instance *, ly_bool *)",
+        "function": "lyplg_ext_print_info_extension_instance",
+        "target_name": "lys_parse_mem",
+        "target_path": "/src/libyang/tests/fuzz/lys_parse_mem.c",
+        "yaml": "libyang.yaml",
+        "yaml_sha256": "f734b4ff57d0999e1feb0c70d08be8299210d43cfe80639e1270ad63d57a7e2e"
+      },
+      {
+        "project": "civetweb",
+        "language": "c",
+        "signature": "int mg_send_file_body(struct mg_connection *, const char *)",
+        "function": "mg_send_file_body",
+        "target_name": "civetweb_fuzz3",
+        "target_path": "/src/civetweb/fuzztest/fuzzmain.c",
+        "yaml": "civetweb.yaml",
+        "yaml_sha256": "6eb960cd8af64c1f23749041d514219d210d6d996c43bdbc9794edec45df6f33"
+      },
+      {
+        "project": "tmux",
+        "language": "c",
+        "signature": "int client_main(struct event_base *, int, char **, uint64_t, int)",
+        "function": "client_main",
+        "target_name": "input-fuzzer",
+        "target_path": "/src/tmux/fuzz/input-fuzzer.c",
+        "yaml": "tmux.yaml",
+        "yaml_sha256": "ba598c619685be78c48adb8847574128aa3cb8da382d31fcaed15797e571fac1"
+      },
+      {
+        "project": "libdwarf",
+        "language": "c",
+        "signature": "int dwarf_get_ranges_baseaddress(Dwarf_Debug, Dwarf_Die, Dwarf_Bool *, Dwarf_Unsigned *, Dwarf_Bool *, Dwarf_Unsigned *, Dwarf_Error *)",
+        "function": "dwarf_get_ranges_baseaddress",
+        "target_name": "fuzz_crc",
+        "target_path": "/src/libdwarf/fuzz/fuzz_crc.c",
+        "yaml": "libdwarf.yaml",
+        "yaml_sha256": "c78bc467cc509a116708fc5b3ee1d13afcf882591aac312d0efdc47dfce16e4a"
+      },
+      {
+        "project": "gss-ntlmssp",
+        "language": "c",
+        "signature": "OM_uint32 gss_init_sec_context(OM_uint32 *, gss_cred_id_t, gss_ctx_id_t *, gss_name_t, gss_OID, OM_uint32, OM_uint32, gss_channel_bindings_t, gss_buffer_t, gss_OID *, gss_buffer_t, OM_uint32 *, OM_uint32 *)",
+        "function": "gss_init_sec_context",
+        "target_name": "fuzz-accept-sec-context",
+        "target_path": "/src/gss-ntlmssp/fuzzing/fuzz-accept-sec-context.c",
+        "yaml": "gss-ntlmssp.yaml",
+        "yaml_sha256": "e7ca7f7350cb785c5be29fff06e02430ec91273bf2ed40617cdf42d6a65bfb14"
+      },
+      {
+        "project": "gpsd",
+        "language": "c",
+        "signature": "int gps_mainloop(struct gps_data_t *, int, DW_TAG_subroutine_typeInfinite loop *)",
+        "function": "gps_mainloop",
+        "target_name": "FuzzJson",
+        "target_path": "/src/gpsd/fuzzer/FuzzJson.c",
+        "yaml": "gpsd.yaml",
+        "yaml_sha256": "dd1a1b66350a73415a8a34e40193502e1cbb9c65d00d76eae54b35cafce62564"
+      },
+      {
+        "project": "dovecot",
+        "language": "c",
+        "signature": "void master_service_init_finish(struct master_service *)",
+        "function": "master_service_init_finish",
+        "target_name": "fuzz-imap-utf7",
+        "target_path": "/src/dovecot/src/lib-imap/fuzz-imap-utf7.c",
+        "yaml": "dovecot.yaml",
+        "yaml_sha256": "849a8baf699fe906485d509c85131050b44d9eaae4a15204628565586c9a259b"
+      },
+      {
+        "project": "kamailio",
+        "language": "c",
+        "signature": "int fix_actions(struct action *)",
+        "function": "fix_actions",
+        "target_name": "fuzz_uri",
+        "target_path": "/src/kamailio/misc/fuzz/fuzz_uri.c",
+        "yaml": "kamailio.yaml",
+        "yaml_sha256": "56bf3e6861b2cd751ece0e3413dca7814f8739f938411e5a5e2635818375728a"
+      },
+      {
+        "project": "cmake",
+        "language": "c",
+        "signature": "XML_Parser XML_ExternalEntityParserCreate(XML_Parser, const XML_Char *, const XML_Char *)",
+        "function": "XML_ExternalEntityParserCreate",
+        "target_name": "xml_parser_fuzzer",
+        "target_path": "/src/CMake/Tests/Fuzzing/xml_parser_fuzzer.cc",
+        "yaml": "cmake.yaml",
+        "yaml_sha256": "675bd4974ef6dbb7924e2cc9fda3d11f73f30e46ac4c11d814233a34baea34b2"
+      },
+      {
+        "project": "rabbitmq-c",
+        "language": "c",
+        "signature": "amqp_rpc_reply_t amqp_connection_close(amqp_connection_state_t, int)",
+        "function": "amqp_connection_close",
+        "target_name": "fuzz_url",
+        "target_path": "/src/librabbitmq/fuzz/fuzz_url.c",
+        "yaml": "rabbitmq-c.yaml",
+        "yaml_sha256": "6c31baa0db432b151034244714778a99d731f1729d8d79f96e7f297068752e32"
+      },
+      {
+        "project": "wasm3",
+        "language": "c",
+        "signature": "uint32_t m3_GetMemorySize(IM3Runtime)",
+        "function": "m3_GetMemorySize",
+        "target_name": "fuzzer",
+        "target_path": "/src/wasm3/platforms/app_fuzz/fuzzer.c",
+        "yaml": "wasm3.yaml",
+        "yaml_sha256": "bc6156042c3dc11eab19b029268ce0c7a99cba0cba8af23c00c4208b7a752b42"
+      },
+      {
+        "project": "sudoers",
+        "language": "c",
+        "signature": "int sudo_set_grlist(struct passwd *, const char **)",
+        "function": "sudo_set_grlist",
+        "target_name": "fuzz_iolog_legacy",
+        "target_path": "/src/sudo/lib/iolog/regress/fuzz/fuzz_iolog_legacy.c",
+        "yaml": "sudoers.yaml",
+        "yaml_sha256": "48a5f0364ba9f795ae0d95f95e1ef111cf46a8e86e6032b711188251e8d6fe0c"
+      },
+      {
+        "project": "libssh",
+        "language": "c",
+        "signature": "ssh_channel ssh_channel_accept_forward(ssh_session, int, int *)",
+        "function": "ssh_channel_accept_forward",
+        "target_name": "ssh_privkey_fuzzer",
+        "target_path": "/src/libssh/tests/fuzz/ssh_privkey_fuzzer.c",
+        "yaml": "libssh.yaml",
+        "yaml_sha256": "480e1d07234c9364ab36d72c8b3b3b6ddd2be7d9dd30efb8b52c59e917b3b280"
+      },
+      {
+        "project": "hdf5",
+        "language": "c",
+        "signature": "herr_t H5D__read(size_t, H5D_dset_io_info_t *)",
+        "function": "H5D__read",
+        "target_name": "h5_read_fuzzer",
+        "target_path": "/src/h5_read_fuzzer.c",
+        "yaml": "hdf5.yaml",
+        "yaml_sha256": "1f282972e8a211a517ebe8484fadf67790a11762bdc28d024c490dee35d5e6ac"
+      },
+      {
+        "project": "oniguruma",
+        "language": "c",
+        "signature": "int onig_set_meta_char(OnigSyntaxType *, unsigned int, OnigCodePoint)",
+        "function": "onig_set_meta_char",
+        "target_name": "fuzzer",
+        "target_path": "/src/oniguruma/harnesses/base.c",
+        "yaml": "oniguruma.yaml",
+        "yaml_sha256": "ff060a59258ca32d3fb7fb7a2062acec1248f3d39b4a8341adf1275927aecbcd"
+      },
+      {
+        "project": "mdbtools",
+        "language": "c",
+        "signature": "void mdb_dump_catalog(MdbHandle *, int)",
+        "function": "mdb_dump_catalog",
+        "target_name": "fuzz_mdb",
+        "target_path": "/src/mdbtools/src/fuzz/fuzz_mdb.c",
+        "yaml": "mdbtools.yaml",
+        "yaml_sha256": "bcdbafa2b6a0c2444d3698712b21e0c8654f53623ad82307b5fea7405958e157"
+      },
+      {
+        "project": "krb5",
+        "language": "c",
+        "signature": "OM_uint32 krb5_gss_store_cred(OM_uint32 *, gss_cred_id_t, gss_cred_usage_t, const gss_OID, OM_uint32, OM_uint32, gss_OID_set *, gss_cred_usage_t *)",
+        "function": "krb5_gss_store_cred",
+        "target_name": "fuzz_ndr",
+        "target_path": "/src/krb5/src/tests/fuzzing/fuzz_ndr.c",
+        "yaml": "krb5.yaml",
+        "yaml_sha256": "6183dac985226dd056e9826a8264d46d30d375513741e281f3d5d931de7f2b75"
+      },
+      {
+        "project": "unit",
+        "language": "c",
+        "signature": "nxt_int_t nxt_process_start(nxt_task_t *, nxt_process_t *)",
+        "function": "nxt_process_start",
+        "target_name": "fuzz_http_controller",
+        "target_path": "/src/unit/fuzzing/nxt_http_controller_fuzz.c",
+        "yaml": "unit.yaml",
+        "yaml_sha256": "744c2e15048b90b41d2b5ff647860f4083763e5b0d0189bd796efc4a24e0227b"
+      },
+      {
+        "project": "jq",
+        "language": "c",
+        "signature": "jv jv_string_implode(jv)",
+        "function": "jv_string_implode",
+        "target_name": "jq_fuzz_load_file",
+        "target_path": "/src/jq/tests/jq_fuzz_load_file.c",
+        "yaml": "jq.yaml",
+        "yaml_sha256": "e8a17bfd2e696d115ac4d8fbf9140d88691ff3f25355e170af782bd156976c3e"
+      },
+      {
+        "project": "hiredis",
+        "language": "c",
+        "signature": "void * redisvCommand(redisContext *, const char *, struct __va_list_tag *)",
+        "function": "redisvCommand",
+        "target_name": "format_command_fuzzer",
+        "target_path": "/src/hiredis/fuzzing/format_command_fuzzer.c",
+        "yaml": "hiredis.yaml",
+        "yaml_sha256": "eb708a00cf67ff6ad07684f31f66fb2311900a511d85c75ea3348b47c46409c1"
+      },
+      {
+        "project": "bind9",
+        "language": "c",
+        "signature": "isc_result_t dns_zt_freezezones(dns_zt_t *, dns_view_t *, bool)",
+        "function": "dns_zt_freezezones",
+        "target_name": "isc_lex_gettoken_fuzzer",
+        "target_path": "/src/bind9/fuzz/isc_lex_gettoken.c",
+        "yaml": "bind9.yaml",
+        "yaml_sha256": "0db779addafc5e60748cdec85b8b083559e1a4d4afca52c5465429352d8c1ffe"
+      },
+      {
+        "project": "w3m",
+        "language": "c",
+        "signature": "Str Stralign_left(Str, int)",
+        "function": "Stralign_left",
+        "target_name": "fuzz_conv",
+        "target_path": "/src/w3m/fuzz/fuzz-conv.c",
+        "yaml": "w3m.yaml",
+        "yaml_sha256": "80775962e930d6677b22da0aa8201c810608ada9fc5c60839d2e6f4d96a617f3"
+      },
+      {
+        "project": "utf8proc",
+        "language": "c",
+        "signature": "utf8proc_ssize_t utf8proc_decompose(const utf8proc_uint8_t *, utf8proc_ssize_t, utf8proc_int32_t *, utf8proc_ssize_t, utf8proc_option_t)",
+        "function": "utf8proc_decompose",
+        "target_name": "utf8proc_fuzzer",
+        "target_path": "/src/utf8proc/test/fuzzer.c",
+        "yaml": "utf8proc.yaml",
+        "yaml_sha256": "aa52220ba4622c762db4ab3770afb1ed410ff4995b5ee256a5e88b428596d1ed"
+      },
+      {
+        "project": "liblouis",
+        "language": "c",
+        "signature": "const char ** lou_getEmphClasses(const char *)",
+        "function": "lou_getEmphClasses",
+        "target_name": "table_fuzzer",
+        "target_path": "/src/liblouis/tests/fuzzing/table_fuzzer.cc",
+        "yaml": "liblouis.yaml",
+        "yaml_sha256": "08a5d62ed3bb989f2fca83bff928b665c06ee286bfd9ca7319e898b9cfcb483a"
+      },
+      {
+        "project": "cups",
+        "language": "c",
+        "signature": "const char * _cupsGetPassword(const char *)",
+        "function": "_cupsGetPassword",
+        "target_name": "fuzz_array",
+        "target_path": "/src/cups/ossfuzz/fuzz_array.c",
+        "yaml": "cups.yaml",
+        "yaml_sha256": "245fa2fc1a4bb50b8fc6c437171c319655e8ad46e56712181a5587d601b04acd"
+      },
+      {
+        "project": "libpg_query",
+        "language": "c",
+        "signature": "void * GenerationRealloc(void *, Size)",
+        "function": "GenerationRealloc",
+        "target_name": "fuzz_parser",
+        "target_path": "/src/libpg_query/test/fuzz/fuzz_parser.c",
+        "yaml": "libpg_query.yaml",
+        "yaml_sha256": "480eb8556a09f50510c2aa94bc15106968610cfc90f94075eb4c75d3fc3a8690"
+      },
+      {
+        "project": "libiec61850",
+        "language": "c",
+        "signature": "MmsValue * MmsValue_newDefaultValue(const MmsVariableSpecification *)",
+        "function": "MmsValue_newDefaultValue",
+        "target_name": "fuzz_mms_decode",
+        "target_path": "/src/libiec61850/fuzz/fuzz_mms_decode.c",
+        "yaml": "libiec61850.yaml",
+        "yaml_sha256": "1d478976f519ce8613a88d4b0f008be72a61253d61aa10d77aff57f8a8cdf51d"
+      },
+      {
+        "project": "libcue",
+        "language": "c",
+        "signature": "const char * rem_get(RemType, Rem *)",
+        "function": "rem_get",
+        "target_name": "fuzz",
+        "target_path": "/src/libcue/oss-fuzz/fuzz.cpp",
+        "yaml": "libcue.yaml",
+        "yaml_sha256": "e2ce8c166b60b355893bd3128387f6d9a3e35c4b86de86eaeda2eb159990c597"
+      },
+      {
+        "project": "libjpeg-turbo",
+        "language": "c",
+        "signature": "int tjDecompress(tjhandle, unsigned char *, unsigned long, unsigned char *, int, int, int, int, int)",
+        "function": "tjDecompress",
+        "target_name": "cjpeg_fuzzer_3_0_x",
+        "target_path": "/src/libjpeg-turbo.3.0.x/fuzz/cjpeg.cc",
+        "yaml": "libjpeg-turbo.yaml",
+        "yaml_sha256": "401a0234bc3091ab62cb76fc043031bfa16fc79c58bef803eed9a1a9a3ddeb68"
+      },
+      {
+        "project": "lldpd",
+        "language": "c",
+        "signature": "struct interfaces_device_list * netlink_get_interfaces(struct lldpd *)",
+        "function": "netlink_get_interfaces",
+        "target_name": "fuzz_sonmp",
+        "target_path": "/src/lldpd/tests/fuzz_sonmp.c",
+        "yaml": "lldpd.yaml",
+        "yaml_sha256": "a15f8c89862a2dd9b3c6c9e960a44c26a13afe400bf28dd4640a756e101ba412"
+      },
+      {
+        "project": "libbpf",
+        "language": "c",
+        "signature": "struct bpf_object * bpf_object__open_file(const char *, const struct bpf_object_open_opts *)",
+        "function": "bpf_object__open_file",
+        "target_name": "bpf-object-fuzzer",
+        "target_path": "/src/libbpf/fuzz/bpf-object-fuzzer.c",
+        "yaml": "libbpf.yaml",
+        "yaml_sha256": "8bb3ba4b39ff41e5f8e1e1f7cb38cbfd3810f9f1f05e039f8b212b2115cbd355"
+      },
+      {
+        "project": "libsndfile",
+        "language": "c",
+        "signature": "SNDFILE * sf_open_fd(int, int, SF_INFO *, int)",
+        "function": "sf_open_fd",
+        "target_name": "sndfile_fuzzer",
+        "target_path": "/src/libsndfile/ossfuzz/sndfile_fuzzer.cc",
+        "yaml": "libsndfile.yaml",
+        "yaml_sha256": "e98716514fa8b2068ba7e91ebae4787c74244e33766bd72653a886519dbbf658"
+      },
+      {
+        "project": "lua",
+        "language": "c",
+        "signature": "int lua_yieldk(lua_State *, int, lua_KContext, lua_KFunction)",
+        "function": "lua_yieldk",
+        "target_name": "lua_stringtonumber_test",
+        "target_path": "/src/testdir/tests/capi/lua_stringtonumber_test.c",
+        "yaml": "lua.yaml",
+        "yaml_sha256": "e3ae6279c3c05e168f44c8593301501683241f4cb70ae5e3cf254012dc8383c4"
+      },
+      {
+        "project": "ada-url",
+        "language": "c",
+        "signature": "ada_url ada_parse_with_base(const char *, size_t, const char *, size_t)",
+        "function": "ada_parse_with_base",
+        "target_name": "ada_c",
+        "target_path": "/src/ada-url/fuzz/ada_c.c",
+        "yaml": "ada-url.yaml",
+        "yaml_sha256": "e72ebf263c2e7105a4b8740dc5fcbc05e4ffd8a0071ecc5066f3a0b3781b4a5b"
+      },
+      {
+        "project": "xen",
+        "language": "c",
+        "signature": "int x86_cpuid_copy_from_buffer(struct cpu_policy *, const xen_cpuid_leaf_t *, uint32_t, uint32_t *, uint32_t *)",
+        "function": "x86_cpuid_copy_from_buffer",
+        "target_name": "x86_instruction_emulator",
+        "target_path": "/src/xen/tools/fuzz/x86_instruction_emulator/fuzz-emul.c",
+        "yaml": "xen.yaml",
+        "yaml_sha256": "f0a1e6091d6e05fac2d48decf89a2173f2c3bfbebd5d52a92b77ebdd0f27d726"
+      },
+      {
+        "project": "util-linux",
+        "language": "c",
+        "signature": "int mnt_table_parse_mtab(struct libmnt_table *, const char *)",
+        "function": "mnt_table_parse_mtab",
+        "target_name": "test_last_fuzz",
+        "target_path": "/src/util-linux/login-utils/last.c",
+        "yaml": "util-linux.yaml",
+        "yaml_sha256": "73f8be9c575fd4ad50c237aba3d9cac460dca56648865555094bd1e0e98eb350"
+      },
+      {
+        "project": "numactl",
+        "language": "c",
+        "signature": "void numa_set_preferred_many(struct bitmask *)",
+        "function": "numa_set_preferred_many",
+        "target_name": "fuzz_parse_str",
+        "target_path": "/src/numactl/fuzz/fuzz_parse_str.c",
+        "yaml": "numactl.yaml",
+        "yaml_sha256": "8c6a7e3f26f8e92869ce352b6de76c590e39b2e24f6c1a806b9348ba3dc6afe3"
+      },
+      {
+        "project": "pupnp",
+        "language": "c",
+        "signature": "IXML_Document * ixmlParseBuffer(const char *)",
+        "function": "ixmlParseBuffer",
+        "target_name": "FuzzIxml",
+        "target_path": "/src/pupnp/fuzzer/FuzzIxml.c",
+        "yaml": "pupnp.yaml",
+        "yaml_sha256": "7d4a3ce5cb96faf59a48293418de6cd106de40558d4bdd062ab37cc787fdd6bd"
+      },
+      {
+        "project": "plan9port",
+        "language": "c",
+        "signature": "mpint * rsadecrypt(RSApriv *, mpint *, mpint *)",
+        "function": "rsadecrypt",
+        "target_name": "fuzz_libsec",
+        "target_path": "/src/fuzz_libsec.c",
+        "yaml": "plan9port.yaml",
+        "yaml_sha256": "7d68da5d3f695c83eb58ba2009afe1f33bea1f0e3ae2ac5bd559734eb265fb96"
+      },
+      {
+        "project": "miniz",
+        "language": "c",
+        "signature": "mz_bool mz_zip_writer_add_cfile(mz_zip_archive *, const char *, FILE *, mz_uint64, const time_t *, const void *, mz_uint16, mz_uint, const char *, mz_uint, const char *, mz_uint)",
+        "function": "mz_zip_writer_add_cfile",
+        "target_name": "checksum_fuzzer",
+        "target_path": "/src/miniz/tests/checksum_fuzzer.c",
+        "yaml": "miniz.yaml",
+        "yaml_sha256": "77f0b5f4857c4b624405dae4992c4c83449e46e5d545ef94a7ecf5ddd6c823ba"
+      },
+      {
+        "project": "proftpd",
+        "language": "c",
+        "signature": "int core_chmod(cmd_rec *, const char *, mode_t)",
+        "function": "core_chmod",
+        "target_name": "fuzzer",
+        "target_path": "/src/fuzzer.c",
+        "yaml": "proftpd.yaml",
+        "yaml_sha256": "ff87e3990cfe016b30cfdbffc62057efcb454dba3a5c2a17304adcb0013052f9"
+      },
+      {
+        "project": "pjsip",
+        "language": "c",
+        "signature": "pj_status_t pjsip_endpt_send_raw_to_uri(pjsip_endpoint *, const pj_str_t *, const pjsip_tpselector *, const void *, pj_size_t, void *, pjsip_tp_send_callback)",
+        "function": "pjsip_endpt_send_raw_to_uri",
+        "target_name": "fuzz-vpx",
+        "target_path": "/src/pjsip/tests/fuzz/fuzz-vpx.c",
+        "yaml": "pjsip.yaml",
+        "yaml_sha256": "1fcfbdb5c37a22e1e269afcf662a01d5ba743b3c0b2ee6862a769b90920f1158"
+      },
+      {
+        "project": "fribidi",
+        "language": "c",
+        "signature": "FriBidiCharType fribidi_get_bidi_type(FriBidiChar)",
+        "function": "fribidi_get_bidi_type",
+        "target_name": "fribidi-fuzzer",
+        "target_path": "/src/fribidi/bin/fribidi-fuzzer.c",
+        "yaml": "fribidi.yaml",
+        "yaml_sha256": "52ac26dd784ee26bbd42a1ca53939da0ec996e404effd0abdda618dfbc9af22c"
+      },
+      {
+        "project": "clib",
+        "language": "c",
+        "signature": "int clib_package_install_dependencies(clib_package_t *, const char *, int)",
+        "function": "clib_package_install_dependencies",
+        "target_name": "fuzz_manifest",
+        "target_path": "/src/clib/test/fuzzing/fuzz_manifest.c",
+        "yaml": "clib.yaml",
+        "yaml_sha256": "be8adda767f49d653357cab279880fa93b0d55031704b9336bcf222b26133e75"
+      },
+      {
+        "project": "zydis",
+        "language": "c",
+        "signature": "ZyanStatus ZydisFormatterBufferGetString(ZydisFormatterBuffer *, ZyanString **)",
+        "function": "ZydisFormatterBufferGetString",
+        "target_name": "ZydisFuzzReEncoding",
+        "target_path": "/src/zydis/tools/ZydisFuzzShared.c",
+        "yaml": "zydis.yaml",
+        "yaml_sha256": "f4bcbc6d2c9bccebbe7c4370c72487ca928bff17911773147037b8cec10b1de5"
+      },
+      {
+        "project": "unbound",
+        "language": "c",
+        "signature": "int ub_resolve_event(struct ub_ctx *, const char *, int, int, void *, ub_event_callback_type, int *)",
+        "function": "ub_resolve_event",
+        "target_name": "fuzz_2_fuzzer",
+        "target_path": "/src/unbound/fuzz_2.c",
+        "yaml": "unbound.yaml",
+        "yaml_sha256": "e89980911380481467802e015b9ce6a3cf29ab0cc1db4c6792950866e82c7df6"
+      },
+      {
+        "project": "h3",
+        "language": "c",
+        "signature": "IterCellsResolution iterInitRes(int)",
+        "function": "iterInitRes",
+        "target_name": "fuzzerInternalCoordIjk",
+        "target_path": "/src/h3/src/apps/fuzzers/fuzzerInternalCoordIjk.c",
+        "yaml": "h3.yaml",
+        "yaml_sha256": "b222ae6d69d319eac588419f843ff3f988af1d41bce806d4b215222c16e6aeff"
+      },
+      {
+        "project": "libxlsxwriter",
+        "language": "c",
+        "signature": "lxw_workbook * new_workbook(const char *)",
+        "function": "new_workbook",
+        "target_name": "xlsx_fuzzer",
+        "target_path": "/src/libxlsxwriter/dev/fuzzing/xlsx_fuzzer.cpp",
+        "yaml": "libxlsxwriter.yaml",
+        "yaml_sha256": "7aebb9de16d5b0c97a8705303a1f655339fcd40ac9c90dcc0637d70d5e9b79d3"
+      },
+      {
+        "project": "tarantool",
+        "language": "c",
+        "signature": "int sql_execute_prepared(uint32_t, const struct sql_bind *, uint32_t, struct port *, struct region *)",
+        "function": "sql_execute_prepared",
+        "target_name": "http_parser_fuzzer",
+        "target_path": "/src/tarantool/test/fuzz/http_parser_fuzzer.c",
+        "yaml": "tarantool.yaml",
+        "yaml_sha256": "23e09455b66e4d5f2acccf12c54a9d71a342912c174031599fc585cce7a5d79d"
+      },
+      {
+        "project": "wolfmqtt",
+        "language": "c",
+        "signature": "int MqttClient_Publish_ex(MqttClient *, MqttPublish *, MqttPublishCb)",
+        "function": "MqttClient_Publish_ex",
+        "target_name": "wolfmqtt-fuzzer",
+        "target_path": "/src/wolfmqtt-fuzzers/fuzzer.cpp",
+        "yaml": "wolfmqtt.yaml",
+        "yaml_sha256": "1d50d427b6d8f1dd5b19f5da1da377c13f463944f2155fd11bff648298321535"
+      },
+      {
+        "project": "opusfile",
+        "language": "c",
+        "signature": "OggOpusFile * op_open_file(const char *, int *)",
+        "function": "op_open_file",
+        "target_name": "opusfile_fuzzer",
+        "target_path": "/src/opusfile_fuzzer.c",
+        "yaml": "opusfile.yaml",
+        "yaml_sha256": "c2d2f0dad1cdace5ed3ae2a393c57c5874812a2c32d21b88c91b25eca5fc8d82"
+      },
+      {
+        "project": "croaring",
+        "language": "c",
+        "signature": "roaring_bitmap_t * roaring_bitmap_lazy_or(const roaring_bitmap_t *, const roaring_bitmap_t *, const _Bool)",
+        "function": "roaring_bitmap_lazy_or",
+        "target_name": "croaring_fuzzer",
+        "target_path": "/src/croaring_fuzzer.c",
+        "yaml": "croaring.yaml",
+        "yaml_sha256": "becd32fa4d38c336427cd5436d25bcff0fa5470e168e51e4c95ff46d76976f64"
+      },
+      {
+        "project": "gpac",
+        "language": "c",
+        "signature": "Bool visual_2d_draw_frame(GF_VisualManager *, GF_Node *, GF_TraverseState *, Bool)",
+        "function": "visual_2d_draw_frame",
+        "target_name": "fuzz_m2ts_probe",
+        "target_path": "/src/gpac/testsuite/oss-fuzzers/fuzz_m2ts_probe.c",
+        "yaml": "gpac.yaml",
+        "yaml_sha256": "d39b3ba64f010f2856b6c296477746ae451fdf8782919d5b54e6cbec164412af"
+      },
+      {
+        "project": "libmodbus",
+        "language": "c",
+        "signature": "int modbus_read_input_registers(modbus_t *, int, int, uint16_t *)",
+        "function": "modbus_read_input_registers",
+        "target_name": "FuzzClient",
+        "target_path": "/src/libmodbus/fuzz/FuzzClient.c",
+        "yaml": "libmodbus.yaml",
+        "yaml_sha256": "5c365ac409f650d75f629a2e496f40e2f279cf51379383a7a7c651ffb3a2fef9"
+      },
+      {
+        "project": "llhttp",
+        "language": "c",
+        "signature": "const char * llhttp_status_name(llhttp_status_t)",
+        "function": "llhttp_status_name",
+        "target_name": "fuzz_parser",
+        "target_path": "/src/llhttp/test/fuzzers/fuzz_parser.c",
+        "yaml": "llhttp.yaml",
+        "yaml_sha256": "90bbdbcc0a7509b6d9dee165206e275d5f51d1a35674333b6a8c0ab674c8ab29"
+      },
+      {
+        "project": "selinux",
+        "language": "c",
+        "signature": "int cil_write_resolve_ast(FILE *, cil_db_t *)",
+        "function": "cil_write_resolve_ast",
+        "target_name": "checkpolicy-fuzzer",
+        "target_path": "/src/selinux/checkpolicy/fuzz/checkpolicy-fuzzer.c",
+        "yaml": "selinux.yaml",
+        "yaml_sha256": "616c5c73d9b6b89d259af2a1ad0571d126e894ffe74a4057a7012114bdc89b7e"
+      },
+      {
+        "project": "igraph",
+        "language": "c",
+        "signature": "int xmlTextReaderRelaxNGValidate(xmlTextReaderPtr, const char *)",
+        "function": "xmlTextReaderRelaxNGValidate",
+        "target_name": "read_graphdb",
+        "target_path": "/src/igraph/fuzzing/read_graphdb.cpp",
+        "yaml": "igraph.yaml",
+        "yaml_sha256": "f2b07bbfd861ab3b6f6fcf67e01a303a1c5dd0c03a9c0addc0478a3436396d10"
+      }
+    ],
+    "c++": [
+      {
+        "project": "ogre",
+        "language": "c++",
+        "signature": "void Ogre::TerrainGroup::loadLegacyTerrain(const ConfigFile &, long, long, bool)",
+        "function": "_ZN4Ogre12TerrainGroup17loadLegacyTerrainERKNS_10ConfigFileEllb",
+        "target_name": "stream_fuzz",
+        "target_path": "/src/stream_fuzz.cpp",
+        "yaml": "ogre.yaml",
+        "yaml_sha256": "4a8c4ac3bdf01d1ca92f1a22b0d8944d721653a5a4b009449c032467fe8da3ee"
+      },
+      {
+        "project": "libpng-proto",
+        "language": "c++",
+        "signature": "void PngProto::MergeFrom(const PngProto &)",
+        "function": "_ZN8PngProto9MergeFromERKS_",
+        "target_name": "png_transforms_fuzzer",
+        "target_path": "/src/libpng_transforms_fuzzer.cc",
+        "yaml": "libpng-proto.yaml",
+        "yaml_sha256": "928a7a6157336321b3a2b1d900153d18d2bb713b19ae259a0f021a9686337ca9"
+      },
+      {
+        "project": "brotli",
+        "language": "c++",
+        "signature": "int BrotliSafeReadBits32Slow(const BrotliBitReader *, uint64_t, uint64_t *)",
+        "function": "BrotliSafeReadBits32Slow",
+        "target_name": "decode_fuzzer",
+        "target_path": "/src/brotli/c/fuzz/decode_fuzzer.c",
+        "yaml": "brotli.yaml",
+        "yaml_sha256": "08aac457b995e9949be0fe578d6d233c2c2e56337654b7724d1e3716aef22b53"
+      },
+      {
+        "project": "neomutt",
+        "language": "c++",
+        "signature": "int mutt_resend_message(FILE *, struct Mailbox *, struct Email *, struct ConfigSubset *)",
+        "function": "mutt_resend_message",
+        "target_name": "address-fuzz",
+        "target_path": "/src/neomutt/fuzz/address.c",
+        "yaml": "neomutt.yaml",
+        "yaml_sha256": "dde567b57bcfb5c89baa1ad5aa48b7ca8247695895c2b2e85f4ea587e056f596"
+      },
+      {
+        "project": "hostap",
+        "language": "c++",
+        "signature": "void wpa_supplicant_deinit(struct wpa_global *)",
+        "function": "wpa_supplicant_deinit",
+        "target_name": "json",
+        "target_path": "/src/hostap/tests/fuzzing/json/json.c",
+        "yaml": "hostap.yaml",
+        "yaml_sha256": "952f0eb47924bfa658f508b364b75da22a13cea0622ef21a249948a2f67efa32"
+      },
+      {
+        "project": "matio",
+        "language": "c++",
+        "signature": "int Mat_VarWrite(mat_t *, matvar_t *, DW_TAG_enumeration_typematio_compression)",
+        "function": "Mat_VarWrite",
+        "target_name": "matio_fuzzer",
+        "target_path": "/src/matio/ossfuzz/matio_fuzzer.cpp",
+        "yaml": "matio.yaml",
+        "yaml_sha256": "8261b362f8eff49e953e3fffe19cc79098512e5e424f485046735ab07e86a9f4"
+      },
+      {
+        "project": "minizip",
+        "language": "c++",
+        "signature": "int32_t mz_zip_attrib_is_symlink(uint32_t, int32_t)",
+        "function": "mz_zip_attrib_is_symlink",
+        "target_name": "zip_fuzzer",
+        "target_path": "/src/minizip-ng/test/fuzz/zip_fuzzer.c",
+        "yaml": "minizip.yaml",
+        "yaml_sha256": "0ac7f9992b7dc4f338086f5f80fa53207630a59df00d13866c43971a9d08558d"
+      },
+      {
+        "project": "ibmswtpm2",
+        "language": "c++",
+        "signature": "TPM_RC TPM2_Import(Import_In *, Import_Out *)",
+        "function": "TPM2_Import",
+        "target_name": "fuzz_tpm_server",
+        "target_path": "/src/ibmswtpm2/src/fuzzer.cc",
+        "yaml": "ibmswtpm2.yaml",
+        "yaml_sha256": "c4e64d8ad0efbbeb95670c5c4915c282da9170690e63fb78356c7ef3fc3ad8aa"
+      },
+      {
+        "project": "leptonica",
+        "language": "c++",
+        "signature": "size_t WebPEncodeLosslessBGR(const uint8_t *, int, int, int, uint8_t **)",
+        "function": "WebPEncodeLosslessBGR",
+        "target_name": "fpix2_fuzzer",
+        "target_path": "/src/leptonica/prog/fuzzing/fpix2_fuzzer.cc",
+        "yaml": "leptonica.yaml",
+        "yaml_sha256": "f9efa9d2f30a9e146e07f395a2c4e0de756b6acdd8b5c56443c0c835b61107a6"
+      },
+      {
+        "project": "cctz",
+        "language": "c++",
+        "signature": "string cctz::time_zone::version()",
+        "function": "_ZNK4cctz9time_zone7versionEv",
+        "target_name": "fuzz_cctz",
+        "target_path": "/src/fuzz_cctz.cc",
+        "yaml": "cctz.yaml",
+        "yaml_sha256": "abc6f6b7cd244a13a16a7e92bb5a6e018915f65a8f387a230f3d8f880868bd00"
+      },
+      {
+        "project": "valijson",
+        "language": "c++",
+        "signature": "OwningPointer valijson::constraints::BasicConstraint<valijson::constraints::EnumConstraint>::clone(const struct BasicConstraint<valijson::constraints::TypeConstraint> *, CustomAlloc, CustomFree)",
+        "function": "_ZNK8valijson11constraints15BasicConstraintINS0_14EnumConstraintEE5cloneEPFPvmEPFvS4_E",
+        "target_name": "fuzzer",
+        "target_path": "/src/valijson/tests/fuzzing/fuzzer.cpp",
+        "yaml": "valijson.yaml",
+        "yaml_sha256": "1f3bc6eb786acca54292fff93050b7db9028590de8cc4e7262a42b3b8fe052eb"
+      },
+      {
+        "project": "libcbor",
+        "language": "c++",
+        "signature": "size_t cbor_refcount(const cbor_item_t *)",
+        "function": "cbor_refcount",
+        "target_name": "cbor_load_fuzzer",
+        "target_path": "/src/libcbor/oss-fuzz/cbor_load_fuzzer.cc",
+        "yaml": "libcbor.yaml",
+        "yaml_sha256": "9e2593553d5d850e8415fe69df2494413dac0f499cf8fc73764cd3405ac679d5"
+      },
+      {
+        "project": "tesseract-ocr",
+        "language": "c++",
+        "signature": "bool tesseract::TessBoxTextRenderer::AddImageHandler(TessBaseAPI *)",
+        "function": "_ZN9tesseract19TessBoxTextRenderer15AddImageHandlerEPNS_11TessBaseAPIE",
+        "target_name": "fuzzer-api",
+        "target_path": "/src/tesseract/unittest/fuzzers/fuzzer-api.cpp",
+        "yaml": "tesseract-ocr.yaml",
+        "yaml_sha256": "a707c81888d6f2b8ff18100c28263466bd4748d68840a0e1837a7e845b7b1d82"
+      },
+      {
+        "project": "libzip",
+        "language": "c++",
+        "signature": "zip_source_t * zip_source_window_create(zip_source_t *, zip_uint64_t, zip_int64_t, zip_error_t *)",
+        "function": "zip_source_window_create",
+        "target_name": "zip_write_encrypt_pkware_file_fuzzer",
+        "target_path": "/src/libzip/ossfuzz/zip_write_encrypt_pkware_file_fuzzer.c",
+        "yaml": "libzip.yaml",
+        "yaml_sha256": "f2bb0fb35cceb5db2cc7313f515fe24d5238cf76007892960736e8e114b5c7fa"
+      },
+      {
+        "project": "libavc",
+        "language": "c++",
+        "signature": "WORD32 ih264_dpb_mgr_count_ref_frames(dpb_mgr_t *, WORD32, WORD32)",
+        "function": "ih264_dpb_mgr_count_ref_frames",
+        "target_name": "avc_enc_fuzzer",
+        "target_path": "/src/libavc/fuzzer/avc_enc_fuzzer.cpp",
+        "yaml": "libavc.yaml",
+        "yaml_sha256": "b2e11490bbc35fd68e51140f474dd80eb94a5f36f63cd994c5ae5e72c6bd7c0b"
+      },
+      {
+        "project": "sleuthkit",
+        "language": "c++",
+        "signature": "TSK_FS_INFO * tsk_fs_open_vol(const TSK_VS_PART_INFO *, TSK_FS_TYPE_ENUM)",
+        "function": "tsk_fs_open_vol",
+        "target_name": "mmls_sun_fuzzer",
+        "target_path": "/src/sleuthkit_mmls_fuzzer.cc",
+        "yaml": "sleuthkit.yaml",
+        "yaml_sha256": "d9f03bdef46bf324022d91229c33a26bc95b87a5e1c77af769eea403bc26ce5a"
+      },
+      {
+        "project": "http-parser",
+        "language": "c++",
+        "signature": "const char * http_status_str(DW_TAG_enumeration_typehttp_status)",
+        "function": "http_status_str",
+        "target_name": "fuzz_url",
+        "target_path": "/src/http-parser/fuzzers/fuzz_url.c",
+        "yaml": "http-parser.yaml",
+        "yaml_sha256": "017e1debc0c881d067c1644ce866328691ada9595c98ccba53e3a7b574d4c7ab"
+      },
+      {
+        "project": "libteken",
+        "language": "c++",
+        "signature": "void teken_set_winsize_noreset(teken_t *, const teken_pos_t *)",
+        "function": "teken_set_winsize_noreset",
+        "target_name": "libteken_fuzzer",
+        "target_path": "/src/libteken_fuzzer.c",
+        "yaml": "libteken.yaml",
+        "yaml_sha256": "19458f76739b76a903d4f2f4d35e10de939d3c7dd7f3b06dffd1634dbe3f8340"
+      },
+      {
+        "project": "keystone",
+        "language": "c++",
+        "signature": "bool ks_arch_supported(ks_arch)",
+        "function": "ks_arch_supported",
+        "target_name": "fuzz_asm_systemz",
+        "target_path": "/src/keystone/suite/fuzz/fuzz_asm_systemz.c",
+        "yaml": "keystone.yaml",
+        "yaml_sha256": "04ba44277b361e4b98e7deeb358d9913aaad98b388e6161bc95cde19de21a35a"
+      },
+      {
+        "project": "simdjson",
+        "language": "c++",
+        "signature": "DW_TAG_enumeration_typeerror_code simdjson::fallback::dom_parser_implementation::stage2_next(document &)",
+        "function": "_ZN8simdjson8fallback25dom_parser_implementation11stage2_nextERNS_3dom8documentE",
+        "target_name": "fuzz_padded",
+        "target_path": "/src/simdjson/fuzz/fuzz_padded.cpp",
+        "yaml": "simdjson.yaml",
+        "yaml_sha256": "15401de6203f55651279a9f9f4a8a3195b6d7652dbc366fdc55464830612b72c"
+      },
+      {
+        "project": "ninja",
+        "language": "c++",
+        "signature": "bool DependencyScan::RecomputeDirty(struct DependencyScan *, struct Node *, vector<Node *, std::__1::allocator<Node *> > *, string *)",
+        "function": "_ZN14DependencyScan14RecomputeDirtyEP4NodePNSt3__16vectorIS1_NS2_9allocatorIS1_EEEEPNS2_12basic_stringIcNS2_11char_traitsIcEENS4_IcEEEE",
+        "target_name": "fuzzer",
+        "target_path": "/src/ninja/misc/manifest_fuzzer.cc",
+        "yaml": "ninja.yaml",
+        "yaml_sha256": "75c174f4eb988ab80288373b9d20826115c04bcc747f9ef7d7fb7676761d82cd"
+      },
+      {
+        "project": "crow",
+        "language": "c++",
+        "signature": "void crow::HTTPParser<crow::Connection<crow::SocketAdaptor, crow::Crow<>> >::process_url(struct HTTPParser<crow::Connection<crow::SocketAdaptor, crow::Crow<> > > *)",
+        "function": "_ZN4crow10HTTPParserINS_10ConnectionINS_13SocketAdaptorENS_4CrowIJEEEJEEEE11process_urlEv",
+        "target_name": "b64_fuzzer",
+        "target_path": "/src/crow/tests/fuzz/b64_fuzzer.cpp",
+        "yaml": "crow.yaml",
+        "yaml_sha256": "be8b7e225f06e70cefe361e9a386dcfc9a69d1b77416c7c114e57cd0b6b4d541"
+      },
+      {
+        "project": "myanmar-tools",
+        "language": "c++",
+        "signature": "void google::LogMessage::SaveOrSendToLog()",
+        "function": "_ZN6google10LogMessage15SaveOrSendToLogEv",
+        "target_name": "zawgyi_detector_fuzz_target",
+        "target_path": "/src/myanmar-tools/clients/cpp/zawgyi_detector_fuzz_target.cpp",
+        "yaml": "myanmar-tools.yaml",
+        "yaml_sha256": "b70a6fcee0f055c7b5f8546aa59bcf90a8c3088c5176828d71ded0292001ecf2"
+      },
+      {
+        "project": "libcoap",
+        "language": "c++",
+        "signature": "int coap_proxy_forward_request_lkd(coap_session_t *, const coap_pdu_t *, coap_pdu_t *, coap_resource_t *, coap_cache_key_t *, coap_proxy_server_list_t *)",
+        "function": "coap_proxy_forward_request_lkd",
+        "target_name": "split_uri_fuzzer",
+        "target_path": "/src/libcoap/tests/oss-fuzz/split_uri_target.c",
+        "yaml": "libcoap.yaml",
+        "yaml_sha256": "0a14170ccc8d9ed40124b444dbf428b657b0ae6719984f9cb3d6d24a634a06a2"
+      },
+      {
+        "project": "htslib",
+        "language": "c++",
+        "signature": "int sam_index_build2(const char *, const char *, int)",
+        "function": "sam_index_build2",
+        "target_name": "hts_open_fuzzer",
+        "target_path": "/src/htslib/test/fuzz/hts_open_fuzzer.c",
+        "yaml": "htslib.yaml",
+        "yaml_sha256": "c3e8571408968d9370c10926ade3a8dd5435bca990903ae0d935b3d1ee7d98b6"
+      },
+      {
+        "project": "libarchive",
+        "language": "c++",
+        "signature": "void archive_entry_linkify(struct archive_entry_linkresolver *, struct archive_entry **, struct archive_entry **)",
+        "function": "archive_entry_linkify",
+        "target_name": "libarchive_fuzzer",
+        "target_path": "/src/libarchive_fuzzer.cc",
+        "yaml": "libarchive.yaml",
+        "yaml_sha256": "47f1a1a76362b37a3d049b51bddd2bc625cbddcd15723e0a57c78d7a5cf499fa"
+      },
+      {
+        "project": "lcms",
+        "language": "c++",
+        "signature": "cmsHPROFILE cmsCreateDeviceLinkFromCubeFileTHR(cmsContext, const char *)",
+        "function": "cmsCreateDeviceLinkFromCubeFileTHR",
+        "target_name": "cms_gdb_fuzzer",
+        "target_path": "/src/cms_gdb_fuzzer.c",
+        "yaml": "lcms.yaml",
+        "yaml_sha256": "74a8e5aeee07cc2ea627017355ab7d6a564592841719e62af6a2768eca28f93f"
+      },
+      {
+        "project": "libprotobuf-mutator",
+        "language": "c++",
+        "signature": "int xmlTextReaderRelaxNGValidateCtxt(xmlTextReaderPtr, xmlRelaxNGValidCtxtPtr, int)",
+        "function": "xmlTextReaderRelaxNGValidateCtxt",
+        "target_name": "expat_example",
+        "target_path": "/src/libprotobuf-mutator/examples/expat/expat_example.cc",
+        "yaml": "libprotobuf-mutator.yaml",
+        "yaml_sha256": "84bdb9db5d805f6cdc3ee48042f9c9d14333be79560e958488023589b929c8c4"
+      },
+      {
+        "project": "uriparser",
+        "language": "c++",
+        "signature": "void * uriEmulateCalloc(UriMemoryManager *, size_t, size_t)",
+        "function": "uriEmulateCalloc",
+        "target_name": "uri_dissect_query_malloc_fuzzer",
+        "target_path": "/src/uri_dissect_query_malloc_fuzzer.cc",
+        "yaml": "uriparser.yaml",
+        "yaml_sha256": "038bfbd06cbad237a045323662d1e3dcf8c34a9c7b37149022e538ff0de5af1f"
+      },
+      {
+        "project": "clamav",
+        "language": "c++",
+        "signature": "cl_error_t cl_scandesc(int, const char *, const char **, unsigned long *, const struct cl_engine *, struct cl_scan_options *)",
+        "function": "cl_scandesc",
+        "target_name": "clamav_scanfile_HWP3_fuzzer",
+        "target_path": "/src/clamav/fuzz/clamav_scanfile_fuzzer.cpp",
+        "yaml": "clamav.yaml",
+        "yaml_sha256": "d78a72ba4b707a76089d0b4900636d620acc28043ef72bcd4739f92b2a97a063"
+      },
+      {
+        "project": "grok",
+        "language": "c++",
+        "signature": "bool grk::CodeStreamDecompress::decompressTiles()",
+        "function": "_ZN3grk20CodeStreamDecompress15decompressTilesEv",
+        "target_name": "grk_decompress_fuzzer",
+        "target_path": "/src/grok/tests/fuzzers/grk_decompress_fuzzer.cpp",
+        "yaml": "grok.yaml",
+        "yaml_sha256": "7f3ea4b589a18473d28efc16aa171d75ae07db83cd000237653afd559b740d34"
+      },
+      {
+        "project": "opendnp3",
+        "language": "c++",
+        "signature": "IINField opendnp3::FreezeRequestHandler::ProcessHeader(const RangeHeader &)",
+        "function": "_ZN8opendnp320FreezeRequestHandler13ProcessHeaderERKNS_11RangeHeaderE",
+        "target_name": "fuzzdecoder",
+        "target_path": "/src/opendnp3/cpp/tests/fuzz/fuzzdecoder.cpp",
+        "yaml": "opendnp3.yaml",
+        "yaml_sha256": "9488cfb43b38ee4e34b047dfc25f35d83c6efb2e29ba0cd008f6741e276ecd45"
+      },
+      {
+        "project": "eigen",
+        "language": "c++",
+        "signature": "void Eigen::Transpose<Eigen::Block<Eigen::Matrix<std::__1::complex<double>, -1, -1, 0, -1, -1>, -1, 1, true> >::resize(Transpose<Eigen::Matrix<int, -1, -1, 0, -1, -1> > *, Index, Index)",
+        "function": "_ZN5Eigen9TransposeINS_5BlockINS_6MatrixINSt3__17complexIdEELin1ELin1ELi0ELin1ELin1EEELin1ELi1ELb1EEEE6resizeEll",
+        "target_name": "solver_fuzzer",
+        "target_path": "/src/solver_fuzzer.cc",
+        "yaml": "eigen.yaml",
+        "yaml_sha256": "b739990ec7f10ad9d7934efc87f2ce72adfa96bc3fb13475cf4ff9565b76aa7a"
+      },
+      {
+        "project": "libxslt",
+        "language": "c++",
+        "signature": "xmlDocPtr xmlReadDoc(const xmlChar *, const char *, const char *, int)",
+        "function": "xmlReadDoc",
+        "target_name": "xpath",
+        "target_path": "/src/libxslt/tests/fuzz/xpath.c",
+        "yaml": "libxslt.yaml",
+        "yaml_sha256": "364e7cf555c5ebe237c26105f238abc699ce5a78fd83d54818e8eef1cc030b5f"
+      },
+      {
+        "project": "libultrahdr",
+        "language": "c++",
+        "signature": "status_t ultrahdr::JpegR::encodeJPEGR(jr_uncompressed_ptr, jr_uncompressed_ptr, jr_compressed_ptr, ultrahdr_transfer_function, jr_compressed_ptr)",
+        "function": "_ZN8ultrahdr5JpegR11encodeJPEGREPNS_25jpegr_uncompressed_structES2_PNS_23jpegr_compressed_structENS_26ultrahdr_transfer_functionES4_",
+        "target_name": "ultrahdr_dec_fuzzer",
+        "target_path": "/src/libultrahdr/fuzzer/ultrahdr_dec_fuzzer.cpp",
+        "yaml": "libultrahdr.yaml",
+        "yaml_sha256": "3bff80dd10837869ed13a3e5729c48f74d9628c4b19be5e2cf8a620226bf944c"
+      },
+      {
+        "project": "capnproto",
+        "language": "c++",
+        "signature": "void capnp::DynamicStruct::Builder::adopt(Field, DW_TAG_rvalue_reference_typeOrphan<capnp::DynamicValue>)",
+        "function": "_ZN5capnp13DynamicStruct7Builder5adoptENS_12StructSchema5FieldEONS_6OrphanINS_12DynamicValueEEE",
+        "target_name": "capnp-llvm-fuzzer-testcase",
+        "target_path": "/src/capnproto/c++/src/capnp/llvm-fuzzer-testcase.c++",
+        "yaml": "capnproto.yaml",
+        "yaml_sha256": "5e87af3e46f20f44ce266a271e5e6d2bb55a134733beff773b43f98d0313346f"
+      },
+      {
+        "project": "libmpeg2",
+        "language": "c++",
+        "signature": "void * impeg2_buf_mgr_get_buf(buf_mgr_t *, WORD32)",
+        "function": "impeg2_buf_mgr_get_buf",
+        "target_name": "mpeg2_dec_fuzzer",
+        "target_path": "/src/libmpeg2/fuzzer/mpeg2_dec_fuzzer.cpp",
+        "yaml": "libmpeg2.yaml",
+        "yaml_sha256": "6b670949478e4ef1447cd3070eb1c8b6e8d48957a09220e1df8f98c7166dcc4e"
+      },
+      {
+        "project": "libxls",
+        "language": "c++",
+        "signature": "void xls_close_summaryInfo(xlsSummaryInfo *)",
+        "function": "xls_close_summaryInfo",
+        "target_name": "fuzz_xls",
+        "target_path": "/src/libxls/fuzz/fuzz_xls.c",
+        "yaml": "libxls.yaml",
+        "yaml_sha256": "b6d5e2470b7335f08ec7664ad8f0b24b571820d1fd837ad093b444b13513710c"
+      },
+      {
+        "project": "re2",
+        "language": "c++",
+        "signature": "bool absl::SimpleAtod(string_view, Nonnull<double *>)",
+        "function": "_ZN4absl10SimpleAtodENSt3__117basic_string_viewIcNS0_11char_traitsIcEEEEPd",
+        "target_name": "re2_fuzzer",
+        "target_path": "/src/re2/re2/fuzzing/re2_fuzzer.cc",
+        "yaml": "re2.yaml",
+        "yaml_sha256": "7d4fcd328675d88278dd26a9bd6e86216f2a022a893bfcf472a7ae2285583663"
+      },
+      {
+        "project": "qubes-os",
+        "language": "c++",
+        "signature": "int process_io(const struct process_io_request *)",
+        "function": "process_io",
+        "target_name": "db-daemon_fuzzer",
+        "target_path": "/src/qubes-os/qubes-core-qubesdb/fuzz/db-daemon_fuzzer.c",
+        "yaml": "qubes-os.yaml",
+        "yaml_sha256": "dd095fe551b1cbbf92cfb47d8f2da5744847969fe5962d5310f455e6e3425cd8"
+      },
+      {
+        "project": "freetype2",
+        "language": "c++",
+        "signature": "int archive_read_support_format_gnutar(struct archive *)",
+        "function": "archive_read_support_format_gnutar",
+        "target_name": "lzw",
+        "target_path": "/src/freetype2-testing/fuzzing/src/fuzzers/template.cpp",
+        "yaml": "freetype2.yaml",
+        "yaml_sha256": "e258fbf40a9dc709185f03223dcddef7d20bbfb261fb1c597e09a389b17155f2"
+      },
+      {
+        "project": "mruby",
+        "language": "c++",
+        "signature": "mrb_value mrb_load_file_cxt(mrb_state *, FILE *, mrb_ccontext *)",
+        "function": "mrb_load_file_cxt",
+        "target_name": "mruby_fuzzer",
+        "target_path": "/src/mruby/oss-fuzz/mruby_fuzzer.c",
+        "yaml": "mruby.yaml",
+        "yaml_sha256": "ceb1048ff06a4a761a4f86f48bccaef23e393e981ecec8283e50528b87c2258a"
+      },
+      {
+        "project": "h2o",
+        "language": "c++",
+        "signature": "void h2o_send_redirect(h2o_req_t *, int, const char *, const char *, size_t)",
+        "function": "h2o_send_redirect",
+        "target_name": "h2o-fuzzer-url",
+        "target_path": "/src/h2o/fuzz/driver_url.cc",
+        "yaml": "h2o.yaml",
+        "yaml_sha256": "9cf49ecb1acdcdf1d9cf31325ec173fab91ced9efb1eae2a9c9f06791f2ca6f3"
+      },
+      {
+        "project": "picotls",
+        "language": "c++",
+        "signature": "int ptls_send(ptls_t *, ptls_buffer_t *, const void *, size_t)",
+        "function": "ptls_send",
+        "target_name": "fuzz-server-hello",
+        "target_path": "/src/picotls/fuzz/fuzz-server-hello.c",
+        "yaml": "picotls.yaml",
+        "yaml_sha256": "7522b7ab86cbc1c83d9a4ccbb2bd115f736e9220f7cbf45b5ed281e637054937"
+      },
+      {
+        "project": "dng_sdk",
+        "language": "c++",
+        "signature": "bool SafeUint32Mult(uint32_t, uint32_t, uint32_t, uint32_t, uint32_t *)",
+        "function": "_Z14SafeUint32MultjjjjPj",
+        "target_name": "dng_camera_profile_fuzzer",
+        "target_path": "/src/dng_camera_profile_fuzzer.cpp",
+        "yaml": "dng_sdk.yaml",
+        "yaml_sha256": "7de1b88677517ea0c4f124a14091d6b6cc6e6d938521358b21ba8d8be7b0f0d9"
+      },
+      {
+        "project": "cmark",
+        "language": "c++",
+        "signature": "int cmark_node_replace(cmark_node *, cmark_node *)",
+        "function": "cmark_node_replace",
+        "target_name": "cmark_fuzzer",
+        "target_path": "/src/cmark/fuzz/cmark-fuzz.c",
+        "yaml": "cmark.yaml",
+        "yaml_sha256": "78c57fb7db3ab585ed2e8f83dfc9ad0c716a0d58dabaa2e976903cef1a64237a"
+      },
+      {
+        "project": "geos",
+        "language": "c++",
+        "signature": "Geometry * GEOSMakeValidWithParams(const Geometry *, const GEOSMakeValidParams *)",
+        "function": "GEOSMakeValidWithParams",
+        "target_name": "fuzz_geo2",
+        "target_path": "/src/geos/tests/fuzz/fuzz_geo2.c",
+        "yaml": "geos.yaml",
+        "yaml_sha256": "ae586c268ea72d5b44d4fb52ea958bcfa5ef54ffcfdfed65e88898b4aa12790f"
+      },
+      {
+        "project": "snappy",
+        "language": "c++",
+        "signature": "size_t snappy::UncompressAsMuchAsPossible(Source *, Sink *)",
+        "function": "_ZN6snappy26UncompressAsMuchAsPossibleEPNS_6SourceEPNS_4SinkE",
+        "target_name": "snappy_uncompress_fuzzer",
+        "target_path": "/src/snappy/snappy_uncompress_fuzzer.cc",
+        "yaml": "snappy.yaml",
+        "yaml_sha256": "44930454c89350be1f6ac50cc582f89fd0bd2ae394fdffd9771a1e08e3a3aee4"
+      },
+      {
+        "project": "glslang",
+        "language": "c++",
+        "signature": "bool glslang::HlslGrammar::acceptStruct(TType &, TIntermNode &*)",
+        "function": "_ZN7glslang11HlslGrammar12acceptStructERNS_5TTypeERP11TIntermNode",
+        "target_name": "compile_fuzzer",
+        "target_path": "/src/compile_fuzzer.cc",
+        "yaml": "glslang.yaml",
+        "yaml_sha256": "351964c613b431c1d4707ffe7b2ff6824af0e9fdb2948b0fbeb8e85dd5f2be86"
+      },
+      {
+        "project": "wxwidgets",
+        "language": "c++",
+        "signature": "void wxPlatformInfo::InitForCurrentPlatform()",
+        "function": "_ZN14wxPlatformInfo22InitForCurrentPlatformEv",
+        "target_name": "zip",
+        "target_path": "/src/wxwidgets/tests/fuzz/zip.cpp",
+        "yaml": "wxwidgets.yaml",
+        "yaml_sha256": "cf90e10db0bacc08867ed09d4c48817b79a94a1762ed3193b86044d48a27f90b"
+      },
+      {
+        "project": "yara",
+        "language": "c++",
+        "signature": "int yr_compiler_add_bytes(YR_COMPILER *, const void *, size_t, const char *)",
+        "function": "yr_compiler_add_bytes",
+        "target_name": "dex_fuzzer",
+        "target_path": "/src/yara/tests/oss-fuzz/dex_fuzzer.cc",
+        "yaml": "yara.yaml",
+        "yaml_sha256": "1efbafd34e07e0ff58c0c1748244c18b86c52ac703fb526bd842cf744ffa2d30"
+      },
+      {
+        "project": "strongswan",
+        "language": "c++",
+        "signature": "sshkey_public_key_t * sshkey_public_key_load(key_type_t, struct __va_list_tag *)",
+        "function": "sshkey_public_key_load",
+        "target_name": "fuzz_ids",
+        "target_path": "/src/strongswan/fuzz/fuzz_ids.c",
+        "yaml": "strongswan.yaml",
+        "yaml_sha256": "2420ecc9f56f038fc0dd5b5bf9ae580106bd6b08d15cb0269cfdb669b9be9eb0"
+      },
+      {
+        "project": "openjpeg",
+        "language": "c++",
+        "signature": "OPJ_BOOL opj_jp2_get_tile(opj_jp2_t *, opj_stream_private_t *, opj_image_t *, opj_event_mgr_t *, OPJ_UINT32)",
+        "function": "opj_jp2_get_tile",
+        "target_name": "opj_decompress_fuzzer_JP2",
+        "target_path": "/src/openjpeg/tests/fuzzers/opj_decompress_fuzzer_JP2.cpp",
+        "yaml": "openjpeg.yaml",
+        "yaml_sha256": "40f29410964fa5a0e87a1ff7904a4b97fa799500da26cb6e21370b22335be31d"
+      },
+      {
+        "project": "giflib",
+        "language": "c++",
+        "signature": "void gifProtoFuzzer::GifProto::MergeFrom(const GifProto &)",
+        "function": "_ZN14gifProtoFuzzer8GifProto9MergeFromERKS0_",
+        "target_name": "egif_target",
+        "target_path": "/src/egif_target.cc",
+        "yaml": "giflib.yaml",
+        "yaml_sha256": "4510fa87c3add24983a013e91a1ef7be35ee15f4e26b400c5a87f4111798ea5c"
+      },
+      {
+        "project": "tinyxml2",
+        "language": "c++",
+        "signature": "void tinyxml2::XMLElement::SetAttribute(const char *, const char *)",
+        "function": "_ZN8tinyxml210XMLElement12SetAttributeEPKcS2_",
+        "target_name": "xmltest",
+        "target_path": "/src/xmltest.cpp",
+        "yaml": "tinyxml2.yaml",
+        "yaml_sha256": "3e802d4cfa914ea35cb770d30083921442a09af900b5f884ac66a491798f108d"
+      },
+      {
+        "project": "zlib",
+        "language": "c++",
+        "signature": "int gzsetparams(gzFile, int, int)",
+        "function": "gzsetparams",
+        "target_name": "checksum_fuzzer",
+        "target_path": "/src/checksum_fuzzer.c",
+        "yaml": "zlib.yaml",
+        "yaml_sha256": "87279bafc77feddcd7610b008d0a37deefe2e4282ecdf206228d5ed6b131109b"
+      },
+      {
+        "project": "rapidjson",
+        "language": "c++",
+        "signature": "Member * rapidjson::GenericValue<rapidjson::UTF8<char>, rapidjson::MemoryPoolAllocator<rapidjson::CrtAllocator> >::DoAllocMembers(GenericValue<rapidjson::UTF8<char>, rapidjson::MemoryPoolAllocator<rapidjson::CrtAllocator> > *, SizeType, MemoryPoolAllocator<rapidjson::CrtAllocator> &)",
+        "function": "_ZN9rapidjson12GenericValueINS_4UTF8IcEENS_19MemoryPoolAllocatorINS_12CrtAllocatorEEEE14DoAllocMembersEjRS5_",
+        "target_name": "fuzzer",
+        "target_path": "/src/rapidjson-fuzzers/fuzzer.cpp",
+        "yaml": "rapidjson.yaml",
+        "yaml_sha256": "19d2438055061f0a14737765f323917126174563502936c5c37719d5a1a62f89"
+      },
+      {
+        "project": "icu",
+        "language": "c++",
+        "signature": "FormattedPlaceholder icu_76::message2::StandardFunctions::DateTime::format(DW_TAG_rvalue_reference_typeFormattedPlaceholder, DW_TAG_rvalue_reference_typeFunctionOptions, UErrorCode &)",
+        "function": "_ZNK6icu_768message217StandardFunctions8DateTime6formatEONS0_20FormattedPlaceholderEONS0_15FunctionOptionsER10UErrorCode",
+        "target_name": "ubidi_fuzzer",
+        "target_path": "/src/icu/icu4c/source/test/fuzzer/ubidi_fuzzer.cpp",
+        "yaml": "icu.yaml",
+        "yaml_sha256": "e2e05f670773f9ffb54135a4c250818cb3965f9ea4797d582224d814e9a446f0"
+      },
+      {
+        "project": "leveldb",
+        "language": "c++",
+        "signature": "Iterator * leveldb::DBImpl::TEST_NewInternalIterator()",
+        "function": "_ZN7leveldb6DBImpl24TEST_NewInternalIteratorEv",
+        "target_name": "fuzz_db",
+        "target_path": "/src/leveldb/fuzz_db.cc",
+        "yaml": "leveldb.yaml",
+        "yaml_sha256": "f6b334cbbcf8c3f1c4249ae9ddbd574ee0a0d6d6b6cd2e3c629f73a3b7018f14"
+      },
+      {
+        "project": "jansson",
+        "language": "c++",
+        "signature": "int json_dump_file(const json_t *, const char *, size_t)",
+        "function": "json_dump_file",
+        "target_name": "json_load_dump_fuzzer",
+        "target_path": "/src/jansson/test/ossfuzz/json_load_dump_fuzzer.cc",
+        "yaml": "jansson.yaml",
+        "yaml_sha256": "5fa62fa8d00fdedfaf4bd9c2a68eb03cf2af284f8229a0f97032f27ca93e4440"
+      },
+      {
+        "project": "casync",
+        "language": "c++",
+        "signature": "int tmp_dir(const char **)",
+        "function": "tmp_dir",
+        "target_name": "fuzz-compress",
+        "target_path": "/src/casync/test/fuzz/fuzz-compress.c",
+        "yaml": "casync.yaml",
+        "yaml_sha256": "0c83af7a657aace3701f868f13249ab609b0ac1cfd1d34c40c62b4e8583acb61"
+      },
+      {
+        "project": "zstd",
+        "language": "c++",
+        "signature": "size_t ZDICT_trainFromBuffer_legacy(void *, size_t, const void *, const size_t *, unsigned int, ZDICT_legacy_params_t)",
+        "function": "ZDICT_trainFromBuffer_legacy",
+        "target_name": "block_decompress",
+        "target_path": "/src/zstd/tests/fuzz/block_decompress.c",
+        "yaml": "zstd.yaml",
+        "yaml_sha256": "67f60e1ff6b5331feb676e345e866a44ea3a0b1a6914e613a0b2f404035ac81a"
+      },
+      {
+        "project": "hermes",
+        "language": "c++",
+        "signature": "DW_TAG_enumeration_typeExecutionStatus hermes::vm::Debugger::runDebugger(DW_TAG_enumeration_typeRunReason, struct InterpreterState &)",
+        "function": "_ZN6hermes2vm8Debugger11runDebuggerENS1_9RunReasonERNS0_16InterpreterStateE",
+        "target_name": "fuzzer-jsi-entry",
+        "target_path": "/src/hermes/tools/fuzzers/libfuzzer/fuzzer-jsi-entry.cpp",
+        "yaml": "hermes.yaml",
+        "yaml_sha256": "4a0077205af3cea9dc9c19518c1045d5a827d6954478621e30b153cfe250198e"
+      },
+      {
+        "project": "wuffs",
+        "language": "c++",
+        "signature": "uint64_t wuffs_base__range_ie_u64__struct::length(const struct wuffs_base__range_ie_u64__struct *)",
+        "function": "_ZNK32wuffs_base__range_ie_u64__struct6lengthEv",
+        "target_name": "bzip2_fuzzer",
+        "target_path": "/src/wuffs/fuzz/c/std/bzip2_fuzzer.c",
+        "yaml": "wuffs.yaml",
+        "yaml_sha256": "e68d792b69849be119d8d7d1d4f9fd790947f93c58de008698729b0b94e383dc"
+      },
+      {
+        "project": "resiprocate",
+        "language": "c++",
+        "signature": "Contents * resip::ContentsFactory<resip::MultipartAlternativeContents>::create(const ContentsFactory<resip::MultipartSignedContents> *, const HeaderFieldValue &, const Mime &)",
+        "function": "_ZNK5resip15ContentsFactoryINS_28MultipartAlternativeContentsEE6createERKNS_16HeaderFieldValueERKNS_4MimeE",
+        "target_name": "fuzzUtil",
+        "target_path": "/src/resiprocate/rutil/test/fuzzUtil.cxx",
+        "yaml": "resiprocate.yaml",
+        "yaml_sha256": "c9608265d83cf85e76e7d01a756d4b427cbf244b6584b6a20094cd4644afff00"
+      },
+      {
+        "project": "double-conversion",
+        "language": "c++",
+        "signature": "double double_conversion::StringToDoubleConverter::StringToDouble(const uc16 *, int, int *)",
+        "function": "_ZNK17double_conversion23StringToDoubleConverter14StringToDoubleEPKtiPi",
+        "target_name": "string_to_double_fuzzer",
+        "target_path": "/src/string_to_double_fuzzer.cc",
+        "yaml": "double-conversion.yaml",
+        "yaml_sha256": "c5d085d5149c060c4a9d39816a22a522db106c8afaa333e374bb77edaea0dc80"
+      },
+      {
+        "project": "lz4",
+        "language": "c++",
+        "signature": "int LZ4_compress_destSize_extState(void *, const char *, char *, int *, int, int)",
+        "function": "LZ4_compress_destSize_extState",
+        "target_name": "decompress_fuzzer",
+        "target_path": "/src/lz4/ossfuzz/decompress_fuzzer.c",
+        "yaml": "lz4.yaml",
+        "yaml_sha256": "46e84abe59dc5adda4cb8125a0f03b1d8e7bce0115a213a36d380f56e5ec80b2"
+      },
+      {
+        "project": "janet",
+        "language": "c++",
+        "signature": "int janet_dostring(JanetTable *, const char *, const char *, Janet *)",
+        "function": "janet_dostring",
+        "target_name": "fuzz_dostring",
+        "target_path": "/src/janet/test/fuzzers/fuzz_dostring.c",
+        "yaml": "janet.yaml",
+        "yaml_sha256": "0539d68c4a2205f44eae4467f18b47a88087ae1fe416f85d4d81d05ba398062f"
+      },
+      {
+        "project": "exiv2",
+        "language": "c++",
+        "signature": "void TXMPMeta<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > >::SerializeToBuffer(const TXMPMeta<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > > *, basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > *, XMP_OptionBits, XMP_StringLen)",
+        "function": "_ZNK8TXMPMetaINSt3__112basic_stringIcNS0_11char_traitsIcEENS0_9allocatorIcEEEEE17SerializeToBufferEPS6_jj",
+        "target_name": "fuzz-read-print-write",
+        "target_path": "/src/exiv2/fuzz/fuzz-read-print-write.cpp",
+        "yaml": "exiv2.yaml",
+        "yaml_sha256": "31d7219e333a38e160841532a0a21ad31c45037e3426568b245e261490eabfad"
+      },
+      {
+        "project": "jsoncpp",
+        "language": "c++",
+        "signature": "bool Json::Reader::parse(const string &, Value &, bool)",
+        "function": "_ZN4Json6Reader5parseERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEERNS_5ValueEb",
+        "target_name": "jsoncpp_fuzzer",
+        "target_path": "/src/jsoncpp/src/test_lib_json/fuzz.cpp",
+        "yaml": "jsoncpp.yaml",
+        "yaml_sha256": "4010a2d821c2a953724c124457bc86868a8df4440c93dcc6d84af9fff14b8e21"
+      },
+      {
+        "project": "libvips",
+        "language": "c++",
+        "signature": "void av1_determine_sc_tools_with_encoding(AV1_COMP *, const int)",
+        "function": "av1_determine_sc_tools_with_encoding",
+        "target_name": "tiffsave_buffer_fuzzer",
+        "target_path": "/src/libvips/fuzz/generic_buffer_fuzzer.cc",
+        "yaml": "libvips.yaml",
+        "yaml_sha256": "a8a86391366dfc697bad7e3059bb36efda9aacb97499ab654a9c5f3d0a5bb291"
+      },
+      {
+        "project": "libfido2",
+        "language": "c++",
+        "signature": "void mutate_string(char *)",
+        "function": "mutate_string",
+        "target_name": "fuzz_netlink",
+        "target_path": "/src/libfido2/fuzz/libfuzzer.c",
+        "yaml": "libfido2.yaml",
+        "yaml_sha256": "93a548c5406af9af823ce4a8ac5485297c080466e588e6696b736d4735de383b"
+      },
+      {
+        "project": "readstat",
+        "language": "c++",
+        "signature": "int readstat_value_is_defined_missing(readstat_value_t, readstat_variable_t *)",
+        "function": "readstat_value_is_defined_missing",
+        "target_name": "fuzz_compression_sav",
+        "target_path": "/src/readstat/src/fuzz/fuzz_compression_sav.c",
+        "yaml": "readstat.yaml",
+        "yaml_sha256": "77e8bea160d156b785f6583c380ac4ae97504532eeb5fa562c10d2167cb85553"
+      },
+      {
+        "project": "nss",
+        "language": "c++",
+        "signature": "int sqlite3_get_table(sqlite3 *, const char *, char ***, int *, int *, char **)",
+        "function": "sqlite3_get_table",
+        "target_name": "certDN",
+        "target_path": "OFG_UNIQUE_PREFIX_/src/nss/fuzz/targets/certDN.cc",
+        "yaml": "nss.yaml",
+        "yaml_sha256": "7555519d44add457f98159353c901d892b0ba9287f10fafd4d1720baffa87a67"
+      },
+      {
+        "project": "hoextdown",
+        "language": "c++",
+        "signature": "void hoedown_document_render_inline(hoedown_document *, hoedown_buffer *, const uint8_t *, size_t)",
+        "function": "hoedown_document_render_inline",
+        "target_name": "hoedown_fuzzer",
+        "target_path": "/src/hoextdown/test/hoedown_fuzzer.c",
+        "yaml": "hoextdown.yaml",
+        "yaml_sha256": "28b97ea7bb0b4d7abd46a9b8d5209d6b029b3ed10dc4068d4d195f41ef9bea95"
+      },
+      {
+        "project": "cppcheck",
+        "language": "c++",
+        "signature": "unsigned int CppCheck::check(const FileWithDetails &)",
+        "function": "_ZN8CppCheck5checkERK15FileWithDetails",
+        "target_name": "oss-fuzz-client",
+        "target_path": "/src/cppcheck/oss-fuzz/main.cpp",
+        "yaml": "cppcheck.yaml",
+        "yaml_sha256": "ddabb80724b700ccfefbde31cead020fc9fcc8e468f47c092061a675cd3fbef9"
+      },
+      {
+        "project": "openh264",
+        "language": "c++",
+        "signature": "void WelsDec::CWelsDecoder::OpenDecoderThreads()",
+        "function": "_ZN7WelsDec12CWelsDecoder18OpenDecoderThreadsEv",
+        "target_name": "decoder_fuzzer",
+        "target_path": "/src/decoder_fuzzer.cpp",
+        "yaml": "openh264.yaml",
+        "yaml_sha256": "c3269315f188b011b2782df064bd9eaba9989b09898fa6266b074e7c1de5fa8b"
+      },
+      {
+        "project": "libspng",
+        "language": "c++",
+        "signature": "int spng_set_text(spng_ctx *, struct spng_text *, uint32_t)",
+        "function": "spng_set_text",
+        "target_name": "spng_write_fuzzer",
+        "target_path": "/src/libspng/tests/spng_write_fuzzer.c",
+        "yaml": "libspng.yaml",
+        "yaml_sha256": "48352c7158f0d1d951518b2943a9752bc9d66c31fb247a0225f10c2371d2b688"
+      },
+      {
+        "project": "c-blosc2",
+        "language": "c++",
+        "signature": "int b2nd_append(b2nd_array_t *, const void *, int64_t, int8_t)",
+        "function": "b2nd_append",
+        "target_name": "compress_frame_fuzzer",
+        "target_path": "/src/c-blosc2/tests/fuzz/fuzz_compress_frame.c",
+        "yaml": "c-blosc2.yaml",
+        "yaml_sha256": "5d5870db9feb9edc91d83520397cd86de1f0fabbeed4aecdc5610c3635bcc626"
+      },
+      {
+        "project": "kcodecs",
+        "language": "c++",
+        "signature": "bool QPluginLoader::load()",
+        "function": "_ZN13QPluginLoader4loadEv",
+        "target_name": "kcodecs_fuzzer",
+        "target_path": "/src/kcodecs_fuzzer.cc",
+        "yaml": "kcodecs.yaml",
+        "yaml_sha256": "015b396b5f980a6d24e6533cd4bd0e9c370d00be7cb3eccd1e4867887ceb5616"
+      },
+      {
+        "project": "mupdf",
+        "language": "c++",
+        "signature": "void pdf_save_document(fz_context *, pdf_document *, const char *, const pdf_write_options *)",
+        "function": "pdf_save_document",
+        "target_name": "pdf_fuzzer",
+        "target_path": "/src/pdf_fuzzer.cc",
+        "yaml": "mupdf.yaml",
+        "yaml_sha256": "b0a90c456a0c026299f07c2ef6d38f743f9ca7fe4fd109d013aee660c61ae5b2"
+      },
+      {
+        "project": "libldac",
+        "language": "c++",
+        "signature": "int ldacBT_set_eqmid(HANDLE_LDAC_BT, int)",
+        "function": "ldacBT_set_eqmid",
+        "target_name": "libldac_encode_fuzzer",
+        "target_path": "/src/libldac_encode_fuzzer.cc",
+        "yaml": "libldac.yaml",
+        "yaml_sha256": "77809c75f6b8161ccf7f40e1812588f028c39fc858a99b3dd259d21b828aa601"
+      },
+      {
+        "project": "phmap",
+        "language": "c++",
+        "signature": "void phmap::priv::ConvertDeletedToEmptyAndFullToDeleted(ctrl_t *, size_t)",
+        "function": "_ZN5phmap4priv37ConvertDeletedToEmptyAndFullToDeletedEPam",
+        "target_name": "phashmap_fuzz",
+        "target_path": "/src/phashmap_fuzz.cc",
+        "yaml": "phmap.yaml",
+        "yaml_sha256": "8a6e169ab3c06b703a4475986f3c9d57aedc4326f875af64ee17a5d5207cd586"
+      },
+      {
+        "project": "opensc",
+        "language": "c++",
+        "signature": "int sc_pkcs15init_delete_object(struct sc_pkcs15_card *, struct sc_profile *, struct sc_pkcs15_object *)",
+        "function": "sc_pkcs15init_delete_object",
+        "target_name": "fuzz_asn1_print",
+        "target_path": "/src/opensc/src/tests/fuzzing/fuzz_asn1_print.c",
+        "yaml": "opensc.yaml",
+        "yaml_sha256": "0bb4eaca4b79acc3612565beea941f05b86cf9ccc414421a8021ee1870ee7617"
+      },
+      {
+        "project": "speex",
+        "language": "c++",
+        "signature": "int sb_encode(void *, void *, SpeexBits *)",
+        "function": "sb_encode",
+        "target_name": "speex_decode_fuzzer_fixed",
+        "target_path": "/src/speex/contrib/oss-fuzz/speexdec_fuzzer.cc",
+        "yaml": "speex.yaml",
+        "yaml_sha256": "fd9eaf50c8511036b5736d3e2073a2943218ece1f9363163c2a7f4fc19c96620"
+      },
+      {
+        "project": "avahi",
+        "language": "c++",
+        "signature": "AvahiStringList * avahi_string_list_new(const char *, void)",
+        "function": "avahi_string_list_new",
+        "target_name": "fuzz-ini-file-parser",
+        "target_path": "/src/avahi/fuzz/fuzz-ini-file-parser.c",
+        "yaml": "avahi.yaml",
+        "yaml_sha256": "3a97978bd7f1f6669a5966f34d20d5c5e90a3f36a8a4b23174dcdaf5e94f4136"
+      },
+      {
+        "project": "wpantund",
+        "language": "c++",
+        "signature": "void TunnelIPv6Interface::processNetlinkFD()",
+        "function": "_ZN19TunnelIPv6Interface16processNetlinkFDEv",
+        "target_name": "wpantund-fuzz",
+        "target_path": "/src/wpantund/src/wpantund/wpantund-fuzz.cpp",
+        "yaml": "wpantund.yaml",
+        "yaml_sha256": "6e0f8f2c937d28f0e30e7662f3e4e1f023390e5c26b8064aac4fd5bb482e1caa"
+      },
+      {
+        "project": "libxml2",
+        "language": "c++",
+        "signature": "int xmlXIncludeProcessTreeFlags(xmlNodePtr, int)",
+        "function": "xmlXIncludeProcessTreeFlags",
+        "target_name": "regexp",
+        "target_path": "/src/libxml2/fuzz/regexp.c",
+        "yaml": "libxml2.yaml",
+        "yaml_sha256": "277c3bfe53bd2cbc43414b4876e777b407fcc5097fd4caf8bf83f0eabf14b3e2"
+      },
+      {
+        "project": "libtpms",
+        "language": "c++",
+        "signature": "TPM_RC TPM2_Create(Create_In *, Create_Out *)",
+        "function": "TPM2_Create",
+        "target_name": "fuzz",
+        "target_path": "/src/libtpms/tests/fuzz.cc",
+        "yaml": "libtpms.yaml",
+        "yaml_sha256": "a3512bf9a8aafe8368159e11c56a41a2eda929568320ae3dab195ba08da5d5d0"
+      },
+      {
+        "project": "pugixml",
+        "language": "c++",
+        "signature": "void pugi::xml_node::print(basic_ostream<char, std::__1::char_traits<char> > &, const char_t *, unsigned int, DW_TAG_enumeration_typexml_encoding, unsigned int)",
+        "function": "_ZNK4pugi8xml_node5printERNSt3__113basic_ostreamIcNS1_11char_traitsIcEEEEPKcjNS_12xml_encodingEj",
+        "target_name": "fuzz_parse",
+        "target_path": "/src/pugixml/tests/fuzz_parse.cpp",
+        "yaml": "pugixml.yaml",
+        "yaml_sha256": "b0ed911097011b623d2eb161b7f498194afadc170de7d5d09cd497d1e2b19966"
+      },
+      {
+        "project": "libaom",
+        "language": "c++",
+        "signature": "void av1_dr_prediction_z3_sse4_1(uint8_t *, ptrdiff_t, int, int, const uint8_t *, const uint8_t *, int, int, int)",
+        "function": "av1_dr_prediction_z3_sse4_1",
+        "target_name": "av1_dec_fuzzer",
+        "target_path": "/src/aom/examples/av1_dec_fuzzer.cc",
+        "yaml": "libaom.yaml",
+        "yaml_sha256": "de2093b1147f254c43f8f2f7aed965729382b786a4948eb9684257c162aeb5df"
+      },
+      {
+        "project": "yajl-ruby",
+        "language": "c++",
+        "signature": "unsigned char * yajl_render_error_string(yajl_handle, const unsigned char *, unsigned int, int)",
+        "function": "yajl_render_error_string",
+        "target_name": "json_fuzzer",
+        "target_path": "/src/yajl-ruby/fuzz/json_fuzzer.c",
+        "yaml": "yajl-ruby.yaml",
+        "yaml_sha256": "056ce4c12d702c9571940674077287c9cfccb6b954e2f9bfef9e6d5403368714"
+      },
+      {
+        "project": "guetzli",
+        "language": "c++",
+        "signature": "void butteraugli::ButteraugliComparator::Mask(DW_TAG_restrict_typevector<butteraugli::Image<float>, std::__1::allocator<butteraugli::Image<float> > > *, DW_TAG_restrict_typevector<butteraugli::Image<float>, std::__1::allocator<butteraugli::Image<float> > > *)",
+        "function": "_ZNK11butteraugli21ButteraugliComparator4MaskEPNSt3__16vectorINS_5ImageIfEENS1_9allocatorIS4_EEEES8_",
+        "target_name": "guetzli_fuzzer",
+        "target_path": "/src/guetzli/fuzz_target.cc",
+        "yaml": "guetzli.yaml",
+        "yaml_sha256": "5d6bf5babccd446a10d28ff0055e0261332013b256d8adf53b9cab6c33007c3f"
+      },
+      {
+        "project": "simdutf",
+        "language": "c++",
+        "signature": "struct result simdutf::icelake::implementation::convert_utf8_to_utf32_with_errors(const char *, size_t, char32_t *)",
+        "function": "_ZNK7simdutf7icelake14implementation33convert_utf8_to_utf32_with_errorsEPKcmPDi",
+        "target_name": "misc",
+        "target_path": "/src/simdutf/fuzz/misc.cpp",
+        "yaml": "simdutf.yaml",
+        "yaml_sha256": "1f243b1810a73772179d194cae4e329349034c977215eae94c19a603feb80dd1"
+      },
+      {
+        "project": "jsonnet",
+        "language": "c++",
+        "signature": "void nlohmann::detail::parser<nlohmann::basic_json<std::__1::map, std::__1::vector, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, bool, long, unsigned long, double, std::__1::allocator, nlohmann::adl_serializer> >::parse(parser<nlohmann::basic_json<std::__1::map, std::__1::vector, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, bool, long, unsigned long, double, std::__1::allocator, nlohmann::adl_serializer> > *, const bool, basic_json<std::__1::map, std::__1::vector, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, bool, long, unsigned long, double, std::__1::allocator, nlohmann::adl_serializer> &)",
+        "function": "_ZN8nlohmann6detail6parserINS_10basic_jsonINSt3__13mapENS3_6vectorENS3_12basic_stringIcNS3_11char_traitsIcEENS3_9allocatorIcEEEEblmdS9_NS_14adl_serializerEEEE5parseEbRSD_",
+        "target_name": "convert_jsonnet_fuzzer_multi",
+        "target_path": "/src/convert_jsonnet_fuzzer_multi.cc",
+        "yaml": "jsonnet.yaml",
+        "yaml_sha256": "924f37d2d29a757817371cc2fbb1129b266c6d87086493bdcdf7a20cdfff3f1e"
+      },
+      {
+        "project": "vorbis",
+        "language": "c++",
+        "signature": "int ov_pcm_seek_page_lap(OggVorbis_File *, ogg_int64_t)",
+        "function": "ov_pcm_seek_page_lap",
+        "target_name": "decode_fuzzer",
+        "target_path": "/src/vorbis/contrib/oss-fuzz/decode_fuzzer.cc",
+        "yaml": "vorbis.yaml",
+        "yaml_sha256": "eae59dafa45c737b69b8c4325f872779fc09b42f67a98c0f0923b4830c95534e"
+      },
+      {
+        "project": "libhevc",
+        "language": "c++",
+        "signature": "float ihevce_get_i_to_avg_ratio(void *, rc_lap_out_params_t *, WORD32, WORD32, WORD32, WORD32 *, WORD32)",
+        "function": "ihevce_get_i_to_avg_ratio",
+        "target_name": "hevc_dec_fuzzer",
+        "target_path": "/src/libhevc/fuzzer/hevc_dec_fuzzer.cpp",
+        "yaml": "libhevc.yaml",
+        "yaml_sha256": "9b44f3bed9faf3e1186066019ca283992c45c3f3f42df48908ca728cdff7d12a"
+      },
+      {
+        "project": "xpdf",
+        "language": "c++",
+        "signature": "void Gfx::opSetExtGState(Object *, int)",
+        "function": "_ZN3Gfx14opSetExtGStateEP6Objecti",
+        "target_name": "fuzz_zxdoc",
+        "target_path": "/src/fuzz_zxdoc.cc",
+        "yaml": "xpdf.yaml",
+        "yaml_sha256": "7b7ac5025b1b1cfc4b23bbee0e4617826fb604b1c971bb97e3413ba93bbbc5ee"
+      },
+      {
+        "project": "libyaml",
+        "language": "c++",
+        "signature": "void yaml_emitter_set_encoding(yaml_emitter_t *, yaml_encoding_t)",
+        "function": "yaml_emitter_set_encoding",
+        "target_name": "libyaml_emitter_fuzzer",
+        "target_path": "/src/libyaml_emitter_fuzzer.c",
+        "yaml": "libyaml.yaml",
+        "yaml_sha256": "31ba55d60205e8e2e2422fb35fb65531461cc09b015c5693996d6efe35ee629f"
+      },
+      {
+        "project": "libpcap",
+        "language": "c++",
+        "signature": "int pcap_findalldevs(pcap_if_t **, char *)",
+        "function": "pcap_findalldevs",
+        "target_name": "fuzz_filter",
+        "target_path": "/src/libpcap/testprogs/fuzz/fuzz_filter.c",
+        "yaml": "libpcap.yaml",
+        "yaml_sha256": "5354a29cef5a8a8f7d51779850a2fa13ac5b90e4a0d6a9b8618b0ba3385ac8f6"
+      },
+      {
+        "project": "proj4",
+        "language": "c++",
+        "signature": "int proj_get_suggested_operation(PJ_CONTEXT *, PJ_OBJ_LIST *, PJ_DIRECTION, PJ_COORD)",
+        "function": "proj_get_suggested_operation",
+        "target_name": "proj_crs_to_crs_fuzzer",
+        "target_path": "/src/PROJ/test/fuzzers/proj_crs_to_crs_fuzzer.cpp",
+        "yaml": "proj4.yaml",
+        "yaml_sha256": "cf9362810f82de4e46b3bebe2fd7f52d8294f2962eacfe28dd1b5640646601be"
+      },
+      {
+        "project": "brpc",
+        "language": "c++",
+        "signature": "void * brpc::policy::DiscoveryClient::PeriodicRenew(void *)",
+        "function": "_ZN4brpc6policy15DiscoveryClient13PeriodicRenewEPv",
+        "target_name": "fuzz_butil",
+        "target_path": "/src/brpc/test/fuzzing/fuzz_butil.cpp",
+        "yaml": "brpc.yaml",
+        "yaml_sha256": "fc19f7389e21206a8ee85dff9662e6279691de2ee7bff56c6545aa97cbbb2f95"
+      },
+      {
+        "project": "libplist",
+        "language": "c++",
+        "signature": "plist_err_t plist_from_memory(const char *, uint32_t, plist_t *, plist_format_t *)",
+        "function": "plist_from_memory",
+        "target_name": "bplist_fuzzer",
+        "target_path": "/src/libplist/fuzz/bplist_fuzzer.cc",
+        "yaml": "libplist.yaml",
+        "yaml_sha256": "d12f0b3d4dfed5af47d1cde64653bb93fdf92801158150018ceaf3cb7826be01"
+      },
+      {
+        "project": "fluent-bit",
+        "language": "c++",
+        "signature": "int flb_config_load_config_format(struct flb_config *, struct flb_cf *)",
+        "function": "flb_config_load_config_format",
+        "target_name": "flb-it-fuzz-ctrace_fuzzer_OSSFUZZ",
+        "target_path": "/src/fluent-bit/tests/internal/fuzzers/ctrace_fuzzer.c",
+        "yaml": "fluent-bit.yaml",
+        "yaml_sha256": "1d69843abf47ea37696b84343e0d8597cdb63073ca8318af5883800750e9617f"
+      },
+      {
+        "project": "xz",
+        "language": "c++",
+        "signature": "lzma_ret lzma_block_encoder(lzma_stream *, lzma_block *)",
+        "function": "lzma_block_encoder",
+        "target_name": "fuzz_decode_alone",
+        "target_path": "/src/xz/tests/ossfuzz/fuzz_decode_alone.c",
+        "yaml": "xz.yaml",
+        "yaml_sha256": "853a95a069757cea257dfd185ede8ace9f75ea28678d418b331ec385cc8a43c0"
+      },
+      {
+        "project": "ots",
+        "language": "c++",
+        "signature": "int LZ4_compress_fast_extState_fastReset(void *, const char *, char *, int, int, int)",
+        "function": "LZ4_compress_fast_extState_fastReset",
+        "target_name": "ots-fuzzer",
+        "target_path": "/src/ots/util/ots-fuzzer.cc",
+        "yaml": "ots.yaml",
+        "yaml_sha256": "a7080c0948d551c411367159fc8371a3a03134f812e7df4536d1e6170cb2684f"
+      },
+      {
+        "project": "file",
+        "language": "c++",
+        "signature": "int magic_list(struct magic_set *, const char *)",
+        "function": "magic_list",
+        "target_name": "magic_fuzzer_loaddb",
+        "target_path": "/src/magic_fuzzer_loaddb.cc",
+        "yaml": "file.yaml",
+        "yaml_sha256": "7fd5fec04b6e884d696a7e2a2c96f91b08e9c263fe7bf5897d877aec987a5794"
+      },
+      {
+        "project": "c-blosc",
+        "language": "c++",
+        "signature": "size_t ZSTD_compress2(ZSTD_CCtx *, void *, size_t, const void *, size_t)",
+        "function": "ZSTD_compress2",
+        "target_name": "decompress_fuzzer",
+        "target_path": "/src/c-blosc/tests/fuzz/fuzz_decompress.c",
+        "yaml": "c-blosc.yaml",
+        "yaml_sha256": "cef68c385f147054c4a3bea6c5132bf1c448a74559ae2df06c10f3048fd530ea"
+      },
+      {
+        "project": "janus-gateway",
+        "language": "c++",
+        "signature": "gboolean janus_rtp_simulcasting_context_process_rtp(janus_rtp_simulcasting_context *, char *, int, uint8_t *, int, uint32_t *, char **, janus_videocodec, janus_rtp_switching_context *, janus_mutex *)",
+        "function": "janus_rtp_simulcasting_context_process_rtp",
+        "target_name": "rtp_fuzzer",
+        "target_path": "/src/janus-gateway/fuzzers/rtp_fuzzer.c",
+        "yaml": "janus-gateway.yaml",
+        "yaml_sha256": "b4efa3c80925674f29c75976061b2b5c03b95c1c331fe30f9afa136b55a21143"
+      },
+      {
+        "project": "bloaty",
+        "language": "c++",
+        "signature": "uint8 * google::protobuf::Message::InternalSerializeWithCachedSizesToArray(uint8 *, EpsCopyOutputStream *)",
+        "function": "_ZNK6google8protobuf7Message39InternalSerializeWithCachedSizesToArrayEPhPNS0_2io19EpsCopyOutputStreamE",
+        "target_name": "fuzz_target",
+        "target_path": "/src/bloaty/tests/fuzz_target.cc",
+        "yaml": "bloaty.yaml",
+        "yaml_sha256": "79949eebbdd8758c219044cb25fbb28f5f29695f53739bb30b78f35d0c1ce0a5"
+      },
+      {
+        "project": "aspell",
+        "language": "c++",
+        "signature": "void acommon::MDInfoListofLists::clear(Config *)",
+        "function": "_ZN7acommon17MDInfoListofLists5clearEPNS_6ConfigE",
+        "target_name": "aspell_fuzzer",
+        "target_path": "/src/aspell-fuzz/aspell_fuzzer.cpp",
+        "yaml": "aspell.yaml",
+        "yaml_sha256": "4f8a8930d75f4f86f9bd6636a381aed42a258a80209968f439478f43ebeba90f"
+      },
+      {
+        "project": "hpn-ssh",
+        "language": "c++",
+        "signature": "int kex_send_newkeys(struct ssh *)",
+        "function": "kex_send_newkeys",
+        "target_name": "authopt_fuzz",
+        "target_path": "/src/hpn-ssh/regress/misc/fuzz-harness/authopt_fuzz.cc",
+        "yaml": "hpn-ssh.yaml",
+        "yaml_sha256": "86e3e426c3b21a6c7e09b232c16a437a21aaa55d028074f187febba3531bb1fd"
+      },
+      {
+        "project": "mpg123",
+        "language": "c++",
+        "signature": "off_t mpg123_feedseek(mpg123_handle *, off_t, int, off_t *)",
+        "function": "mpg123_feedseek",
+        "target_name": "read_fuzzer",
+        "target_path": "/src/read_fuzzer.c",
+        "yaml": "mpg123.yaml",
+        "yaml_sha256": "ffee8cb84f8d4582133b97bf22df194918bafea9cbddb69775a37dec1fcbd9b5"
+      },
+      {
+        "project": "tinygltf",
+        "language": "c++",
+        "signature": "bool tinygltf::TinyGLTF::LoadASCIIFromFile(Model *, string *, string *, const string &, unsigned int)",
+        "function": "_ZN8tinygltf8TinyGLTF17LoadASCIIFromFileEPNS_5ModelEPNSt3__112basic_stringIcNS3_11char_traitsIcEENS3_9allocatorIcEEEESA_RKS9_j",
+        "target_name": "fuzz_gltf",
+        "target_path": "/src/tinygltf/tests/fuzzer/fuzz_gltf.cc",
+        "yaml": "tinygltf.yaml",
+        "yaml_sha256": "8e05d0a9da3705ec9a57c2144171eabc8f72de401e80c4c47bea9af47facd910"
+      },
+      {
+        "project": "powerdns",
+        "language": "c++",
+        "signature": "void YaHTTP::HTTPBase::write(ostream &)",
+        "function": "_ZNK6YaHTTP8HTTPBase5writeERNSt3__113basic_ostreamIcNS1_11char_traitsIcEEEE",
+        "target_name": "fuzz_target_proxyprotocol",
+        "target_path": "/src/pdns/pdns/fuzz_proxyprotocol.cc",
+        "yaml": "powerdns.yaml",
+        "yaml_sha256": "1826f0c93fb72425e305537dd51c09cc960a4a4b4147801caea7e5fce325659b"
+      },
+      {
+        "project": "fftw3",
+        "language": "c++",
+        "signature": "double elapsed(ticks, ticks)",
+        "function": "elapsed",
+        "target_name": "fftw3_fuzzer",
+        "target_path": "/src/fftw3_fuzzer.cc",
+        "yaml": "fftw3.yaml",
+        "yaml_sha256": "ea312abaac8582561fc87e4ebe1f2c02aa4cb124b399d9c7a579543c39a04223"
+      },
+      {
+        "project": "fmt",
+        "language": "c++",
+        "signature": "void fmt::v11::detail::print(FILE *, string_view)",
+        "function": "_ZN3fmt3v116detail5printEP8_IO_FILENS0_17basic_string_viewIcEE",
+        "target_name": "float-fuzzer",
+        "target_path": "/src/fmt/test/fuzzing/float.cc",
+        "yaml": "fmt.yaml",
+        "yaml_sha256": "05b06251a05ddf1311b7718b5bbec6c308c3004ee0cf97ba69d7b5eecfa979a8"
+      },
+      {
+        "project": "boost",
+        "language": "c++",
+        "signature": "basic_regex<char, boost::regex_traits<char, boost::cpp_regex_traits<char> > > & boost::basic_regex<char, boost::c_regex_traits<char> >::assign(basic_regex<char, boost::regex_traits<char, boost::cpp_regex_traits<char> > > *, const char *, const char *, flag_type)",
+        "function": "_ZN5boost11basic_regexIcNS_14c_regex_traitsIcEEE6assignEPKcS5_j",
+        "target_name": "boost_uuid_fuzzer",
+        "target_path": "/src/boost_uuid_fuzzer.cc",
+        "yaml": "boost.yaml",
+        "yaml_sha256": "fd9ff171a29dc8f33919005c3b7321d31b88027293e9f454fb8556352f7fb01e"
+      },
+      {
+        "project": "ndpi",
+        "language": "c++",
+        "signature": "struct kdres * kd_nearest_range(struct kdtree *, const double *, double)",
+        "function": "kd_nearest_range",
+        "target_name": "fuzz_gcrypt_gcm",
+        "target_path": "/src/ndpi/fuzz/fuzz_gcrypt_gcm.cpp",
+        "yaml": "ndpi.yaml",
+        "yaml_sha256": "287ff138f81a39cb2df58229031845bec5afa121be484468bef4b86919a0fdad"
+      },
+      {
+        "project": "expat",
+        "language": "c++",
+        "signature": "DW_TAG_enumeration_typeXML_Status XML_SetBase(XML_Parser, const XML_Char *)",
+        "function": "XML_SetBase",
+        "target_name": "xml_parsebuffer_fuzzer_UTF-8",
+        "target_path": "/src/expat/expat/fuzz/xml_parsebuffer_fuzzer.c",
+        "yaml": "expat.yaml",
+        "yaml_sha256": "36af4be12d8aebe048b1e38f53cec7eb21c0e55ef4e9a582d42b1b6fec5fe014"
+      },
+      {
+        "project": "llvm_libcxx",
+        "language": "c++",
+        "signature": "back_insert_iterator<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > > std::__1::__format::__format_buffer<std::__1::back_insert_iterator<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > >, char>::__out_it(__format_buffer<std::__1::back_insert_iterator<std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> > >, char> *)",
+        "function": "_ZNOSt3__18__format15__format_bufferINS_20back_insert_iteratorINS_12basic_stringIcNS_11char_traitsIcEENS_9allocatorIcEEEEEEcE8__out_itB8ne200000Ev",
+        "target_name": "pop_heap",
+        "target_path": "/src/llvm-project/libcxx/test/libcxx/fuzzing/pop_heap.pass.cpp",
+        "yaml": "llvm_libcxx.yaml",
+        "yaml_sha256": "6bce88d95cd9e7fbc9690031d846e928864230d7d4c6fadd355ed1350352b38a"
+      },
+      {
+        "project": "qpid-proton",
+        "language": "c++",
+        "signature": "int pn_message_data(pn_message_t *, pn_data_t *)",
+        "function": "pn_message_data",
+        "target_name": "fuzz-message-decode",
+        "target_path": "/src/qpid-proton/c/tests/fuzz/fuzz-message-decode.c",
+        "yaml": "qpid-proton.yaml",
+        "yaml_sha256": "581e2278e98f0a1173bc5793069c44b933db32a107b017146ee17e996226a985"
+      },
+      {
+        "project": "haproxy",
+        "language": "c++",
+        "signature": "void init(int, char **)",
+        "function": "init",
+        "target_name": "fuzz_hpack_decode",
+        "target_path": "/src/haproxy/fuzz_hpack_decode.c",
+        "yaml": "haproxy.yaml",
+        "yaml_sha256": "fbed4eb8617968f0c38d22964356dad1becbfef13ae47e7f2903a7234fb029eb"
+      },
+      {
+        "project": "libcups",
+        "language": "c++",
+        "signature": "const char * _cupsGetPassword(const char *)",
+        "function": "_cupsGetPassword",
+        "target_name": "fuzzipp",
+        "target_path": "/src/libcups/ossfuzz/fuzzipp.c",
+        "yaml": "libcups.yaml",
+        "yaml_sha256": "69796b81fab63900f39a1e0fc397f45ed6e725b26ffe3e34e9f7bac8aa9977ce"
+      },
+      {
+        "project": "stb",
+        "language": "c++",
+        "signature": "int stbi_info(const char *, int *, int *, int *)",
+        "function": "stbi_info",
+        "target_name": "stb_png_read_fuzzer",
+        "target_path": "/src/stb/tests/stbi_read_fuzzer.c",
+        "yaml": "stb.yaml",
+        "yaml_sha256": "d2353a24f73c4218458f3303e562661ba0b47e8bba0dbc3f6f53b04f5e4f895e"
+      },
+      {
+        "project": "libfdk-aac",
+        "language": "c++",
+        "signature": "AACENC_ERROR aacEncEncode(const HANDLE_AACENCODER, const AACENC_BufDesc *, const AACENC_BufDesc *, const AACENC_InArgs *, AACENC_OutArgs *)",
+        "function": "aacEncEncode",
+        "target_name": "aacDecoder_Open",
+        "target_path": "/src/aacDecoder_Open.cpp",
+        "yaml": "libfdk-aac.yaml",
+        "yaml_sha256": "92edcd55f6229ed016e1fd8345c9000bb0960b30836421572c7ce206fcad352c"
+      },
+      {
+        "project": "pcre2",
+        "language": "c++",
+        "signature": "struct sljit_stack * sljit_allocate_stack(sljit_uw, sljit_uw, void *)",
+        "function": "sljit_allocate_stack",
+        "target_name": "pcre2_fuzzer_16_4l",
+        "target_path": "/src/pcre2/src/pcre2_fuzzsupport.c",
+        "yaml": "pcre2.yaml",
+        "yaml_sha256": "e731a2ad3b10d827cb9003508e1b78dfba8a7d6409d880e59a9059ad00bf6bf9"
+      },
+      {
+        "project": "pigweed",
+        "language": "c++",
+        "signature": "const unsigned long * pw::Vector<std::byte const, 18446744073709551615ul>::data(const Vector<const unsigned long, 18446744073709551615UL> *)",
+        "function": "_ZNK2pw6VectorIKSt4byteLm18446744073709551615EE4dataEv",
+        "target_name": "get_int_bounded_fuzzer",
+        "target_path": "/src/pigweed/pw_random/get_int_bounded_fuzzer.cc",
+        "yaml": "pigweed.yaml",
+        "yaml_sha256": "2b7af39987f1a3487c44ed6ff9c89b3784f9783101a6d297a3b8188ab328e7f0"
+      },
+      {
+        "project": "muduo",
+        "language": "c++",
+        "signature": "void muduo::Thread::start()",
+        "function": "_ZN5muduo6Thread5startEv",
+        "target_name": "muduo_http_fuzzer",
+        "target_path": "/src/muduo_http_fuzzer.cpp",
+        "yaml": "muduo.yaml",
+        "yaml_sha256": "559b93213bec3121a07a1e45c9ce4e90ae2f6b2a4fbfc793bf7e49011fde2371"
+      },
+      {
+        "project": "opus",
+        "language": "c++",
+        "signature": "int opus_decode(OpusDecoder *, const unsigned char *, opus_int32, opus_int16 *, int, int)",
+        "function": "opus_decode",
+        "target_name": "opus_repacketizer_fuzzer_fixed",
+        "target_path": "/src/opus/tests/opus_repacketizer_fuzzer.cc",
+        "yaml": "opus.yaml",
+        "yaml_sha256": "0490b1945a8582ac3c88800dba9d273f92c4607debb160d035d2fa7f4e9ef10d"
+      },
+      {
+        "project": "draco",
+        "language": "c++",
+        "signature": "bool draco::PointCloud::DeduplicateAttributeValues()",
+        "function": "_ZN5draco10PointCloud26DeduplicateAttributeValuesEv",
+        "target_name": "draco_mesh_decoder_without_dequantization_fuzzer",
+        "target_path": "/src/draco/src/draco/tools/fuzz/draco_mesh_decoder_without_dequantization_fuzzer.cc",
+        "yaml": "draco.yaml",
+        "yaml_sha256": "23060fc5f294a75fecfa124cc879d80f9109f31b36d3a1638633dd407d26b8a3"
+      },
+      {
+        "project": "nanopb",
+        "language": "c++",
+        "signature": "bool pb_get_encoded_size(size_t *, const pb_msgdesc_t *, const void *)",
+        "function": "pb_get_encoded_size",
+        "target_name": "fuzztest_io_errors",
+        "target_path": "/src/nanopb/tests/build/fuzztest/fuzztest.c",
+        "yaml": "nanopb.yaml",
+        "yaml_sha256": "3837c326a2d71c83b3b1d92c52f31d423a26efa5da9fea65df7ecfb67cf94fa2"
+      },
+      {
+        "project": "tidy-html5",
+        "language": "c++",
+        "signature": "int tidySaveFile(TidyDoc, ctmbstr)",
+        "function": "tidySaveFile",
+        "target_name": "tidy_config_fuzzer",
+        "target_path": "/src/tidy_config_fuzzer.c",
+        "yaml": "tidy-html5.yaml",
+        "yaml_sha256": "6899c75a3af2019db7911ceb92f6cc654e541c1cc5ede75881d365a89b61b80b"
+      },
+      {
+        "project": "capstone",
+        "language": "c++",
+        "signature": "bool BPF_getInstruction(csh, const uint8_t *, size_t, MCInst *, uint16_t *, uint64_t, void *)",
+        "function": "BPF_getInstruction",
+        "target_name": "fuzz_disasmv5",
+        "target_path": "/src/capstonev5/suite/fuzz/fuzz_disasm.c",
+        "yaml": "capstone.yaml",
+        "yaml_sha256": "9a8b0e88639a78444870d5fd4958c9d1ccc8cae1343832d1cb93227995bf54d0"
+      },
+      {
+        "project": "nestegg",
+        "language": "c++",
+        "signature": "int nestegg_track_seek(nestegg *, unsigned int, uint64_t)",
+        "function": "nestegg_track_seek",
+        "target_name": "fuzz",
+        "target_path": "/src/nestegg/test/fuzz.cc",
+        "yaml": "nestegg.yaml",
+        "yaml_sha256": "626fa067cb9d59a635649f928d9aee98b28a1662246c79b0c7bb29dd6fa29407"
+      },
+      {
+        "project": "mosh",
+        "language": "c++",
+        "signature": "string Terminal::Complete::init_diff()",
+        "function": "_ZNK8Terminal8Complete9init_diffB5cxx11Ev",
+        "target_name": "terminal_parser_fuzzer",
+        "target_path": "/src/mosh/src/fuzz/terminal_parser_fuzzer.cc",
+        "yaml": "mosh.yaml",
+        "yaml_sha256": "dc7a5832edee596d1c763a11a842bfdb073d8b4910eb15bbff6d6b3a72855ebc"
+      },
+      {
+        "project": "spice-usbredir",
+        "language": "c++",
+        "signature": "void usbredirparser_send_iso_packet(struct usbredirparser *, uint64_t, struct usb_redir_iso_packet_header *, uint8_t *, int)",
+        "function": "usbredirparser_send_iso_packet",
+        "target_name": "usbredirfilterfuzz",
+        "target_path": "/src/spice-usbredir/fuzzing/usbredirfilterfuzz.cc",
+        "yaml": "spice-usbredir.yaml",
+        "yaml_sha256": "851efbdddd9a6964bc6663fda32b3fb8bc8ef2f2c8dfb50f057dcf27161dcf8a"
+      },
+      {
+        "project": "perfetto",
+        "language": "c++",
+        "signature": "vector<unsigned char, std::__1::allocator<unsigned char> > perfetto::protos::gen::TracePacket::SerializeAsArray()",
+        "function": "_ZNK8perfetto6protos3gen11TracePacket16SerializeAsArrayEv",
+        "target_name": "shared_ring_buffer_write_fuzzer",
+        "target_path": "/src/perfetto/src/profiling/memory/shared_ring_buffer_write_fuzzer.cc",
+        "yaml": "perfetto.yaml",
+        "yaml_sha256": "58d461e9f9df0be06be9976a168ba3a72e7a6075160b3ad65fde814790799b43"
+      },
+      {
+        "project": "open62541",
+        "language": "c++",
+        "signature": "UA_StatusCode UA_Server_addWriterGroup(UA_Server *, const UA_NodeId, const UA_WriterGroupConfig *, UA_NodeId *)",
+        "function": "UA_Server_addWriterGroup",
+        "target_name": "fuzz_base64_decode",
+        "target_path": "/src/open62541/tests/fuzz/fuzz_base64_decode.cc",
+        "yaml": "open62541.yaml",
+        "yaml_sha256": "445bfc8a51dc1b9fbbd9c457cbe2425477d4cc3fbb01cef72d5cb7a54d53a13f"
+      },
+      {
+        "project": "c-ares",
+        "language": "c++",
+        "signature": "void ares_gethostbyaddr(ares_channel_t *, const void *, int, int, ares_host_callback, void *)",
+        "function": "ares_gethostbyaddr",
+        "target_name": "ares_parse_reply_fuzzer",
+        "target_path": "/src/c-ares/test/ares-test-fuzz.c",
+        "yaml": "c-ares.yaml",
+        "yaml_sha256": "2b7f0a3926df51bfd99a1a64b021479b8ad0ea10d52c0aa54742c0941b964910"
+      },
+      {
+        "project": "openweave",
+        "language": "c++",
+        "signature": "void nl::Weave::WeaveSecurityManager::HandleKeyExportMessageInitiator(ExchangeContext *, const IPPacketInfo *, const struct WeaveMessageInfo *, uint32_t, uint8_t, PacketBuffer *)",
+        "function": "_ZN2nl5Weave20WeaveSecurityManager31HandleKeyExportMessageInitiatorEPNS0_15ExchangeContextEPKNS_4Inet12IPPacketInfoEPKNS0_16WeaveMessageInfoEjhPNS0_6System12PacketBufferE",
+        "target_name": "FuzzPASEInitiatorStep1",
+        "target_path": "/src/openweave-core/src/test-apps/fuzz/FuzzPASEInitiatorStep1.cpp",
+        "yaml": "openweave.yaml",
+        "yaml_sha256": "c86e33c24c6706162531d3d695981e49158649a5667dfa4211c3ab83dac00e58"
+      },
+      {
+        "project": "json",
+        "language": "c++",
+        "signature": "iterator nlohmann::json_abi_v3_11_3::basic_json<std::__1::map, std::__1::vector, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, bool, long, unsigned long, double, std::__1::allocator, nlohmann::json_abi_v3_11_3::adl_serializer, std::__1::vector<unsigned char, std::__1::allocator<unsigned char> >, void>::begin(basic_json<std::__1::map, std::__1::vector, std::__1::basic_string<char, std::__1::char_traits<char>, std::__1::allocator<char> >, bool, long, unsigned long, double, std::__1::allocator, nlohmann::json_abi_v3_11_3::adl_serializer, std::__1::vector<unsigned char, std::__1::allocator<unsigned char> >, void> *)",
+        "function": "_ZN8nlohmann16json_abi_v3_11_310basic_jsonINSt3__13mapENS2_6vectorENS2_12basic_stringIcNS2_11char_traitsIcEENS2_9allocatorIcEEEEblmdS8_NS0_14adl_serializerENS4_IhNS8_IhEEEEvE5beginEv",
+        "target_name": "parse_bson_fuzzer",
+        "target_path": "/src/json/tests/src/fuzzer-parse_bson.cpp",
+        "yaml": "json.yaml",
+        "yaml_sha256": "9bd9bc9bf23a9f18a6b533431456ae8de6600e30993afc777032c7472156a037"
+      },
+      {
+        "project": "libtsm",
+        "language": "c++",
+        "signature": "int tsm_vte_set_palette(struct tsm_vte *, const char *)",
+        "function": "tsm_vte_set_palette",
+        "target_name": "libtsm_fuzzer",
+        "target_path": "/src/libtsm_fuzzer.c",
+        "yaml": "libtsm.yaml",
+        "yaml_sha256": "589936ea3497c4f3e31352debd2f8d6408902bd5812110e9dc949b5504395efa"
+      },
+      {
+        "project": "spotify-json",
+        "language": "c++",
+        "signature": "const_iterator spotify::json::detail::field_registry::begin()",
+        "function": "_ZNK7spotify4json6detail14field_registry5beginEv",
+        "target_name": "fuzz_decode",
+        "target_path": "/src/spotify-json/fuzzers/fuzz_decode.cpp",
+        "yaml": "spotify-json.yaml",
+        "yaml_sha256": "c753eb4f019bd160f01bdd282d55c9e353f419a6088f80b8329e8f79801329ee"
+      },
+      {
+        "project": "poco",
+        "language": "c++",
+        "signature": "bool Poco::DateTimeFormat::isValid(const string &)",
+        "function": "_ZN4Poco14DateTimeFormat7isValidERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEE",
+        "target_name": "mail_message_fuzzer",
+        "target_path": "/src/mail_message_fuzzer.cc",
+        "yaml": "poco.yaml",
+        "yaml_sha256": "82f2bc49858bb1ac6a95f7f944790243279fd2be2f0a784f6f4c47ebd0f56799"
+      },
+      {
+        "project": "tpm2-tss",
+        "language": "c++",
+        "signature": "TSS2_RC iesys_gen_auths(ESYS_CONTEXT *, RSRC_NODE_T *, RSRC_NODE_T *, RSRC_NODE_T *, TSS2L_SYS_AUTH_COMMAND *)",
+        "function": "iesys_gen_auths",
+        "target_name": "Tss2_Sys_Create_Complete",
+        "target_path": "/src/tpm2-tss/test/fuzz/main-sys.c",
+        "yaml": "tpm2-tss.yaml",
+        "yaml_sha256": "52125d231dd309c77a972979ee084afacd52c0f26ffcdc38e6adc33567fba116"
+      },
+      {
+        "project": "unicorn",
+        "language": "c++",
+        "signature": "decNumber * decNumberPower(decNumber *, const decNumber *, const decNumber *, decContext *)",
+        "function": "decNumberPower",
+        "target_name": "fuzz_emu_arm_thumb",
+        "target_path": "/src/unicorn/tests/fuzz/fuzz_emu_arm_thumb.c",
+        "yaml": "unicorn.yaml",
+        "yaml_sha256": "800069324af9c9266bd522feed3de7653248a10279d8dc1ab1d334876576fcf4"
+      },
+      {
+        "project": "njs",
+        "language": "c++",
+        "signature": "njs_int_t njs_error_constructor(njs_vm_t *, njs_value_t *, njs_uint_t, njs_index_t, njs_value_t *)",
+        "function": "njs_error_constructor",
+        "target_name": "njs_process_script_fuzzer",
+        "target_path": "/src/njs/external/njs_shell.c",
+        "yaml": "njs.yaml",
+        "yaml_sha256": "ddbe643c0cf33bfb074daa8753a5445bbbc8ae910170968dbdeafc065f573758"
+      },
+      {
+        "project": "wabt",
+        "language": "c++",
+        "signature": "struct Result wabt::WastParser::ParseScript(unique_ptr<wabt::Script, std::__1::default_delete<wabt::Script> > *)",
+        "function": "_ZN4wabt10WastParser11ParseScriptEPNSt3__110unique_ptrINS_6ScriptENS1_14default_deleteIS3_EEEE",
+        "target_name": "wasm2wat_fuzzer",
+        "target_path": "/src/wasm2wat_fuzzer.cc",
+        "yaml": "wabt.yaml",
+        "yaml_sha256": "319ba961be8587844eebbce1b2be710786188bc950537b46478a17848435f168"
+      },
+      {
+        "project": "libtheora",
+        "language": "c++",
+        "signature": "char * th_comment_query(th_comment *, const char *, int)",
+        "function": "th_comment_query",
+        "target_name": "fuzzer-decoder",
+        "target_path": "/src/oss-fuzz-fuzzers/libtheora/fuzzer.cpp",
+        "yaml": "libtheora.yaml",
+        "yaml_sha256": "36177bedb28f82f4e80213ba951b88dff3f24fee61b26c15dfd8d342dd602a0a"
+      },
+      {
+        "project": "libass",
+        "language": "c++",
+        "signature": "hb_blob_t * hb_table_lazy_loader_t<OT::COLR, 35u, true>::create(hb_face_t *)",
+        "function": "_ZN22hb_table_lazy_loader_tIN2OT4COLRELj35ELb1EE6createEP9hb_face_t",
+        "target_name": "libass_fuzzer",
+        "target_path": "/src/libass/fuzz/fuzz.c",
+        "yaml": "libass.yaml",
+        "yaml_sha256": "551abebcbefd2e07b068f5eb64a89c312715227ae41d014dce8bbbf7ea6a7cb0"
+      },
+      {
+        "project": "libssh2",
+        "language": "c++",
+        "signature": "int libssh2_channel_forward_cancel(LIBSSH2_LISTENER *)",
+        "function": "libssh2_channel_forward_cancel",
+        "target_name": "ssh2_client_fuzzer",
+        "target_path": "/src/libssh2/tests/ossfuzz/ssh2_client_fuzzer.cc",
+        "yaml": "libssh2.yaml",
+        "yaml_sha256": "05791e7fa7f384293cfcc8d36cd7365257712a840023128354ad5d5725b279a8"
+      },
+      {
+        "project": "hunspell",
+        "language": "c++",
+        "signature": "int HunspellImpl::suggest(char ***, const char *)",
+        "function": "_ZN12HunspellImpl7suggestEPPPcPKc",
+        "target_name": "affdicfuzzer",
+        "target_path": "/src/hunspell/src/tools/affdicfuzzer.cxx",
+        "yaml": "hunspell.yaml",
+        "yaml_sha256": "eba4da0a853d6cfc91418e2a288a33f58d3cb54374d7dab0885d01fae7e4c90e"
+      },
+      {
+        "project": "flatbuffers",
+        "language": "c++",
+        "signature": "void flatbuffers::Parser::Serialize()",
+        "function": "_ZN11flatbuffers6Parser9SerializeEv",
+        "target_name": "flexverifier_fuzzer",
+        "target_path": "/src/flatbuffers/tests/fuzzer/flexbuffers_verifier_fuzzer.cc",
+        "yaml": "flatbuffers.yaml",
+        "yaml_sha256": "c97ad5be1d653c4f1b5140c22e825d9294cbd92a5d977f88c54732aa1bf403ca"
+      },
+      {
+        "project": "pistache",
+        "language": "c++",
+        "signature": "void Pistache::Rest::Private::RouterHandler::onRequest(const Request &, ResponseWriter)",
+        "function": "_ZN8Pistache4Rest7Private13RouterHandler9onRequestERKNS_4Http7RequestENS3_14ResponseWriterE",
+        "target_name": "fuzz_parsers",
+        "target_path": "/src/pistache/tests/fuzzers/fuzz_parser.cpp",
+        "yaml": "pistache.yaml",
+        "yaml_sha256": "78c1ca3233cd16c2a0d498fdee0c9d8d2f9b0fee5f165a5f0de3c54a6fe6ec62"
+      },
+      {
+        "project": "muparser",
+        "language": "c++",
+        "signature": "value_type * mu::ParserBase::Eval(int &)",
+        "function": "_ZNK2mu10ParserBase4EvalERi",
+        "target_name": "set_eval_fuzzer",
+        "target_path": "/src/set_eval_fuzzer.cc",
+        "yaml": "muparser.yaml",
+        "yaml_sha256": "549efb4b0c94808d70f610cf9168cea5e0a9805b859dc210c1411f66b505d52a"
+      },
+      {
+        "project": "freeimage",
+        "language": "c++",
+        "signature": "void LibRaw::selectCRXTrack()",
+        "function": "_ZN6LibRaw14selectCRXTrackEv",
+        "target_name": "load_from_memory_fuzzer",
+        "target_path": "/src/load_from_memory_fuzzer.cc",
+        "yaml": "freeimage.yaml",
+        "yaml_sha256": "fbefeaeba87be9d39283fb3e0eda727ee938c2f3558485675cc47982edd6a92d"
+      },
+      {
+        "project": "usbguard",
+        "language": "c++",
+        "signature": "void usbguard::AuditFileSink::write(const struct Source &, DW_TAG_enumeration_typeLevel, const string &)",
+        "function": "_ZN8usbguard13AuditFileSink5writeERKNS_9LogStream6SourceENS1_5LevelERKNSt3__112basic_stringIcNS6_11char_traitsIcEENS6_9allocatorIcEEEE",
+        "target_name": "fuzzer-usb-descriptor",
+        "target_path": "/src/usbguard/src/Tests/Fuzzers/fuzzer-usb-descriptor.cpp",
+        "yaml": "usbguard.yaml",
+        "yaml_sha256": "917d9053a78348661aaeb6a06f30406c762d6eafbc0884cbc24c85457c1cb281"
+      },
+      {
+        "project": "mbedtls",
+        "language": "c++",
+        "signature": "void mbedtls_strerror(int, char *, size_t)",
+        "function": "mbedtls_strerror",
+        "target_name": "fuzz_x509crl",
+        "target_path": "/src/mbedtls/programs/fuzz/fuzz_x509crl.c",
+        "yaml": "mbedtls.yaml",
+        "yaml_sha256": "918f42347615b67da17b3faf2505aebb45f386a42f6cfae95c6f84ec47fd8192"
+      },
+      {
+        "project": "znc",
+        "language": "c++",
+        "signature": "void CClient::ReadLine(const CString &)",
+        "function": "_ZN7CClient8ReadLineERK7CString",
+        "target_name": "msg_parse_fuzzer",
+        "target_path": "/src/msg_parse_fuzzer.cpp",
+        "yaml": "znc.yaml",
+        "yaml_sha256": "1e0da26c25ebc1ac0b74b80d7d3922ed5ac8ee24d8f495ea62d6b91f8c581b86"
+      },
+      {
+        "project": "rnp",
+        "language": "c++",
+        "signature": "pgp_key_pkt_t * pgp_decrypt_seckey(const pgp_key_t &, const pgp_password_provider_t &, const pgp_password_ctx_t &)",
+        "function": "_Z18pgp_decrypt_seckeyRK9pgp_key_tRK23pgp_password_provider_tRK18pgp_password_ctx_t",
+        "target_name": "fuzz_sigimport",
+        "target_path": "/src/rnp/src/fuzzing/sigimport.c",
+        "yaml": "rnp.yaml",
+        "yaml_sha256": "e6363392673112fd8f4f376fa602aebbe8c4f0745b44cf2386d37748b877bbbf"
+      },
+      {
+        "project": "woff2",
+        "language": "c++",
+        "signature": "int BrotliDecoderIsFinished(const BrotliDecoderStateInternal *)",
+        "function": "BrotliDecoderIsFinished",
+        "target_name": "convert_woff2ttf_fuzzer_new_entry",
+        "target_path": "/src/woff2/src/convert_woff2ttf_fuzzer_new_entry.cc",
+        "yaml": "woff2.yaml",
+        "yaml_sha256": "771970aeffc000b842083bc9af1eca93a3fe3a8064b094542a61abb9e8c8d23b"
+      },
+      {
+        "project": "libxaac",
+        "language": "c++",
+        "signature": "VOID ixheaacd_hbe_apply_ifft_336(FLOAT32 *, FLOAT32 *, WORD32, WORD32)",
+        "function": "ixheaacd_hbe_apply_ifft_336",
+        "target_name": "xaac_enc_fuzzer",
+        "target_path": "/src/libxaac/fuzzer/xaac_enc_fuzzer.cpp",
+        "yaml": "libxaac.yaml",
+        "yaml_sha256": "7400a01020588870e8da33eae1e08ee32fab2b1c674ce494628d4b677c1e5741"
+      },
+      {
+        "project": "elfutils",
+        "language": "c++",
+        "signature": "z_size_t gzfwrite(voidpc, z_size_t, z_size_t, gzFile)",
+        "function": "gzfwrite",
+        "target_name": "fuzz-libelf",
+        "target_path": "/src/fuzz-libelf.c",
+        "yaml": "elfutils.yaml",
+        "yaml_sha256": "b3daf59f6bbb660194d7efd15ac129b03e99b0d4f61d002f98fa87528aa90320"
+      },
+      {
+        "project": "libtiff",
+        "language": "c++",
+        "signature": "TIFF * TIFFOpen(const char *, const char *)",
+        "function": "TIFFOpen",
+        "target_name": "tiff_read_rgba_fuzzer",
+        "target_path": "/src/libtiff/contrib/oss-fuzz/tiff_read_rgba_fuzzer.cc",
+        "yaml": "libtiff.yaml",
+        "yaml_sha256": "a518ccf9592e8d6289506e98a25212c508fa47fc875a35ef2edab54beba28208"
+      },
+      {
+        "project": "cpp-httplib",
+        "language": "c++",
+        "signature": "bool httplib::Server::process_and_close_socket(socket_t)",
+        "function": "_ZN7httplib6Server24process_and_close_socketEi",
+        "target_name": "server_fuzzer",
+        "target_path": "/src/cpp-httplib/test/fuzzing/server_fuzzer.cc",
+        "yaml": "cpp-httplib.yaml",
+        "yaml_sha256": "9fb0cd7d37555ca6a5b95ab1b399eb748ec72d78bc8e7076732153f875ce51aa"
+      },
+      {
+        "project": "cjson",
+        "language": "c++",
+        "signature": "cJSON_bool cJSON_PrintPreallocated(cJSON *, char *, const int, const cJSON_bool)",
+        "function": "cJSON_PrintPreallocated",
+        "target_name": "cjson_read_fuzzer",
+        "target_path": "/src/cjson/fuzzing/cjson_read_fuzzer.c",
+        "yaml": "cjson.yaml",
+        "yaml_sha256": "516f0ba6fb498c842517564cc2f7288803869090b4e42bbbdd203d715642880f"
+      },
+      {
+        "project": "yoga",
+        "language": "c++",
+        "signature": "void YGNodeReset(YGNodeRef)",
+        "function": "YGNodeReset",
+        "target_name": "fuzz_layout",
+        "target_path": "/src/yoga/fuzz/FuzzLayout.cpp",
+        "yaml": "yoga.yaml",
+        "yaml_sha256": "cedb432aac78269b40898282c018563bd9409455a9320c2d1c5ba6a7605595cb"
+      },
+      {
+        "project": "tinyusb",
+        "language": "c++",
+        "signature": "void tcp_input(struct pbuf *, struct netif *)",
+        "function": "tcp_input",
+        "target_name": "cdc",
+        "target_path": "/src/tinyusb/test/fuzz/device/cdc/src/fuzz.cc",
+        "yaml": "tinyusb.yaml",
+        "yaml_sha256": "56963d6035cc8fca900064473bf480dc1e1b31b091870982136c7b8a86960f83"
+      },
+      {
+        "project": "tinyobjloader",
+        "language": "c++",
+        "signature": "bool tinyobj::LoadObj(struct attrib_t *, vector<tinyobj::shape_t, std::__1::allocator<tinyobj::shape_t> > *, vector<tinyobj::material_t, std::__1::allocator<tinyobj::material_t> > *, string *, string *, const char *, const char *, bool, bool)",
+        "function": "_ZN7tinyobj7LoadObjEPNS_8attrib_tEPNSt3__16vectorINS_7shape_tENS2_9allocatorIS4_EEEEPNS3_INS_10material_tENS5_IS9_EEEEPNS2_12basic_stringIcNS2_11char_traitsIcEENS5_IcEEEESI_PKcSK_bb",
+        "target_name": "fuzz_ParseFromString",
+        "target_path": "/src/tinyobjloader/fuzzer/fuzz_ParseFromString.cc",
+        "yaml": "tinyobjloader.yaml",
+        "yaml_sha256": "9c0382233a6f1d531f846307bf1c059e7de7e7f906b3e754861bf17b094e508d"
+      },
+      {
+        "project": "libvpx",
+        "language": "c++",
+        "signature": "void vp9_loopfilter_job(LFWorkerData *, VP9LfSync *)",
+        "function": "vp9_loopfilter_job",
+        "target_name": "vpx_dec_fuzzer_vp8",
+        "target_path": "/src/libvpx/examples/vpx_dec_fuzzer.cc",
+        "yaml": "libvpx.yaml",
+        "yaml_sha256": "4d010ddcab5f86360fc4be1b5e0db7177fe1f660e5f431c24716b50f368eb19d"
+      },
+      {
+        "project": "opennavsurf-bag",
+        "language": "c++",
+        "signature": "shared_ptr<BAG::Dataset> BAG::Dataset::create(const string &, DW_TAG_rvalue_reference_typeMetadata, uint64_t, int)",
+        "function": "_ZN3BAG7Dataset6createERKNSt3__112basic_stringIcNS1_11char_traitsIcEENS1_9allocatorIcEEEEONS_8MetadataEmi",
+        "target_name": "bag_extended_fuzzer",
+        "target_path": "/src/bag/fuzzers/bag_extended_fuzzer.cpp",
+        "yaml": "opennavsurf-bag.yaml",
+        "yaml_sha256": "f3f29820eeab4c735535ae866bdadb81a5e44fe3e4c7386b807ab16cbea0dfe2"
+      },
+      {
+        "project": "flac",
+        "language": "c++",
+        "signature": "FLAC__StreamDecoderInitStatus FLAC::Decoder::File::init_ogg(const char *)",
+        "function": "_ZN4FLAC7Decoder4File8init_oggEPKc",
+        "target_name": "fuzzer_seek",
+        "target_path": "/src/flac/oss-fuzz/seek.cc",
+        "yaml": "flac.yaml",
+        "yaml_sha256": "605002f4d3735fd5655b20b233da516af5938767d035d55e62e8ac8a649559ab"
+      },
+      {
+        "project": "usrsctp",
+        "language": "c++",
+        "signature": "int usrsctp_connectx(struct socket *, const struct sockaddr *, int, sctp_assoc_t *)",
+        "function": "usrsctp_connectx",
+        "target_name": "fuzzer_listen",
+        "target_path": "/src/usrsctp/fuzzer/fuzzer_listen.c",
+        "yaml": "usrsctp.yaml",
+        "yaml_sha256": "1664fec3afea1a4d0d2c41113fa00deda55b63ff384e9e44a6700d1c23e5f30a"
+      },
+      {
+        "project": "libvnc",
+        "language": "c++",
+        "signature": "void rfbStartOnHoldClient(rfbClientPtr)",
+        "function": "rfbStartOnHoldClient",
+        "target_name": "fuzz_server",
+        "target_path": "/src/libvncserver/test/fuzz_server.c",
+        "yaml": "libvnc.yaml",
+        "yaml_sha256": "ec1f89ebeea74c418b1769c6fb476f88106f512353ccf076f2b7e34d1c0cb357"
+      },
+      {
+        "project": "uwebsockets",
+        "language": "c++",
+        "signature": "void uWS::HttpResponse<true>::writeUnsignedHex(struct HttpResponse<false> *, unsigned int)",
+        "function": "_ZN3uWS12HttpResponseILb1EE16writeUnsignedHexEj",
+        "target_name": "QueryParser",
+        "target_path": "/src/uWebSockets/fuzzing/QueryParser.cpp",
+        "yaml": "uwebsockets.yaml",
+        "yaml_sha256": "6d86e2c37e25deed122a03c70f2105e50aadc53aa21e988edf059320fe6c1b5d"
+      },
+      {
+        "project": "libsrtp",
+        "language": "c++",
+        "signature": "srtp_err_status_t srtp_replace_auth_type(const srtp_auth_type_t *, srtp_auth_type_id_t)",
+        "function": "srtp_replace_auth_type",
+        "target_name": "srtp-fuzzer",
+        "target_path": "/src/libsrtp/fuzzer/fuzzer.c",
+        "yaml": "libsrtp.yaml",
+        "yaml_sha256": "c6ade2f08f3e00f127ec00d2d3ab350059a41e8fe97174fd6d6c2bdac9545ff9"
+      }
+    ]
+  },
+  "bench_dir": "benchmark-sets/function_0"
+}
