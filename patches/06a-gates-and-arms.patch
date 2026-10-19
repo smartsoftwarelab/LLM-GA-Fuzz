@@ -1,0 +1,76 @@
+diff --git a/scripts/campaign/check_campaign.py b/scripts/campaign/check_campaign.py
+index 89a0082..6a202d9 100644
+--- a/scripts/campaign/check_campaign.py
++++ b/scripts/campaign/check_campaign.py
+@@ -19,6 +19,7 @@ from utils.campaign import count_http_posts, files_with_secrets  # noqa: E402
+ ap = argparse.ArgumentParser()
+ ap.add_argument("--out", default="outputs/campaign")
+ ap.add_argument("--reference", default="campaign/preflight_reference.txt")
++ap.add_argument("--final", action="store_true", help="treat runs still marked running as aborted")
+ args = ap.parse_args()
+ out = Path(args.out)
+ 
+@@ -28,11 +29,14 @@ gates.append(("G1 coverage == hand-derived reference", "PASS  A branches == 4/6"
+ gates.append(("G2 three identical measurements", "PASS  A determinism" in ref, args.reference))
+ 
+ manifests = sorted(out.glob("rep*/*/*/run_manifest.json"))
+-commits, images, lost, aborted, g3_bad, g4_bad = set(), set(), [], [], [], []
++commits, images, lost, aborted, g3_bad, g4_bad, running = set(), set(), [], [], [], [], []
+ for mp in manifests:
+     m = json.loads(mp.read_text())
+     d = mp.parent
+     key = f"{m['project']}_rep{m['repetition_index']}"
++    if m["status"] == "running" and not args.final:
++        running.append(key)          # in progress: no end-of-run fields yet, checked once finished
++        continue
+     commits.add((m["code"].get("commit"), m["code"].get("dirty")))
+     images.add(json.dumps({k: v.get("id") for k, v in m.get("docker_images_end", {}).items()}, sort_keys=True))
+     if m["status"] != "completed":
+@@ -63,5 +67,5 @@ if lost:
+     print("lost initial attempts (recorded, not fatal):")
+     for x in lost:
+         print("  " + x)
+-print(f"runs checked: {len(manifests)}")
++print(f"runs checked: {len(manifests) - len(running)}  in progress (skipped): {running or 'none'}")
+ print("OVERALL:", "PASS" if all(ok for _, ok, _ in gates) else "FAIL")
+diff --git a/scripts/campaign/run_campaign.py b/scripts/campaign/run_campaign.py
+index a1240ab..2b3b473 100644
+--- a/scripts/campaign/run_campaign.py
++++ b/scripts/campaign/run_campaign.py
+@@ -25,17 +25,25 @@ from utils.campaign import LANG_LABEL, find_target_dir, manifest_status, rep_see
+ ap = argparse.ArgumentParser()
+ ap.add_argument("--targets", default="campaign/targets_selected.json")
+ ap.add_argument("--template", default="cfg/campaign/campaign.yaml")
+-ap.add_argument("--out", default="outputs/campaign")
++ap.add_argument("--out", default=None, help="default: outputs/campaign (full) or outputs/campaign_<arm>")
++ap.add_argument("--arm", default="full", choices=["full", "lambda0", "random_strategy"],
++                help="ablation arm: lambda0 = no crash bonus; random_strategy = uniform strategy choice")
++ap.add_argument("--only", default=None, help="comma-separated projects (ablation subset)")
+ ap.add_argument("--reps", type=int, default=5)
+ ap.add_argument("--campaign-seed", type=int, default=20261016)
+ ap.add_argument("--eval-minutes", type=int, default=5)
+ ap.add_argument("--dry-run", action="store_true")
+ args = ap.parse_args()
+ 
+-out = Path(args.out).resolve()
++ARMS = {"full": {}, "lambda0": {"crash_bonus": 0.0}, "random_strategy": {"strategy_selection": "random"}}
++out = Path(args.out or ("outputs/campaign" if args.arm == "full" else f"outputs/campaign_{args.arm}")).resolve()
+ for sub in ("configs", "logs", "audit", "timings"):
+     (out / sub).mkdir(parents=True, exist_ok=True)
+ targets = json.loads(Path(args.targets).read_text())["selected"]
++if args.only:
++    keep = set(args.only.split(","))
++    targets = [t for t in targets if t["project"] in keep]
++    assert len(targets) == len(keep), f"unknown project in --only: {keep - {t['project'] for t in targets}}"
+ template = yaml.safe_load(Path(args.template).read_text())
+ progress = out / "progress.jsonl"
+ 
+@@ -66,7 +74,7 @@ for t in targets:
+                     shutil.move(str(side), str(dest / side.name))
+             log_progress(run=key, phase="moved_failed_run", to=str(dest))
+             target_dir = None
+-        cfg = {**template, "save_root": str(save_root), "project_name": [t["project"]],
++        cfg = {**template, **ARMS[args.arm], "ablation_arm": args.arm, "save_root": str(save_root), "project_name": [t["project"]],
+                "function_signatures": [t["signature"]], "language": LANG_LABEL[t["language"]],
+                "seed": rep_seed(args.campaign_seed, r), "repetition_index": r}
+         cfg_path = out / "configs" / f"{key}.yaml"
