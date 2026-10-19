@@ -25,17 +25,25 @@ from utils.campaign import LANG_LABEL, find_target_dir, manifest_status, rep_see
 ap = argparse.ArgumentParser()
 ap.add_argument("--targets", default="campaign/targets_selected.json")
 ap.add_argument("--template", default="cfg/campaign/campaign.yaml")
-ap.add_argument("--out", default="outputs/campaign")
+ap.add_argument("--out", default=None, help="default: outputs/campaign (full) or outputs/campaign_<arm>")
+ap.add_argument("--arm", default="full", choices=["full", "lambda0", "random_strategy"],
+                help="ablation arm: lambda0 = no crash bonus; random_strategy = uniform strategy choice")
+ap.add_argument("--only", default=None, help="comma-separated projects (ablation subset)")
 ap.add_argument("--reps", type=int, default=5)
 ap.add_argument("--campaign-seed", type=int, default=20261016)
 ap.add_argument("--eval-minutes", type=int, default=5)
 ap.add_argument("--dry-run", action="store_true")
 args = ap.parse_args()
 
-out = Path(args.out).resolve()
+ARMS = {"full": {}, "lambda0": {"crash_bonus": 0.0}, "random_strategy": {"strategy_selection": "random"}}
+out = Path(args.out or ("outputs/campaign" if args.arm == "full" else f"outputs/campaign_{args.arm}")).resolve()
 for sub in ("configs", "logs", "audit", "timings"):
     (out / sub).mkdir(parents=True, exist_ok=True)
 targets = json.loads(Path(args.targets).read_text())["selected"]
+if args.only:
+    keep = set(args.only.split(","))
+    targets = [t for t in targets if t["project"] in keep]
+    assert len(targets) == len(keep), f"unknown project in --only: {keep - {t['project'] for t in targets}}"
 template = yaml.safe_load(Path(args.template).read_text())
 progress = out / "progress.jsonl"
 
@@ -66,7 +74,7 @@ for t in targets:
                     shutil.move(str(side), str(dest / side.name))
             log_progress(run=key, phase="moved_failed_run", to=str(dest))
             target_dir = None
-        cfg = {**template, "save_root": str(save_root), "project_name": [t["project"]],
+        cfg = {**template, **ARMS[args.arm], "ablation_arm": args.arm, "save_root": str(save_root), "project_name": [t["project"]],
                "function_signatures": [t["signature"]], "language": LANG_LABEL[t["language"]],
                "seed": rep_seed(args.campaign_seed, r), "repetition_index": r}
         cfg_path = out / "configs" / f"{key}.yaml"
