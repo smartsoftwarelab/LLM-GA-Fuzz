@@ -54,6 +54,40 @@ def median_iqr(values: list[float]) -> tuple[Optional[float], Optional[float], O
     return float(med), float(q1), float(q3)
 
 
+def last_genome_states(target_dir: Path) -> dict[str, dict]:
+    """Last saved JSON of every genome of a run (gen_000 ... gen_N)."""
+    genomes: dict[str, dict] = {}
+    for gp in sorted(Path(target_dir).glob("evolution/gen_*/*.json")):
+        g = json.loads(gp.read_text(encoding="utf-8"))
+        genomes[g["genome_id"]] = g
+    return genomes
+
+
+def recompute_totals(genomes: dict[str, dict], fit_cfg: dict) -> dict[str, tuple[float, float]]:
+    """End-of-run fitness of every compiled genome against the final pool (pool_max):
+    {genome_id: (total with crash bonus, total without)}. Other modes use the saved totals."""
+    valid = {gid: g for gid, g in genomes.items() if g.get("compile_ok")}
+    lam = fit_cfg.get("crash_bonus_lambda") or 0.0
+    bonus = {gid: (lam if g["fitness"].get("library_crash") else 0.0) for gid, g in valid.items()}
+    if fit_cfg.get("normalization") != "pool_max":
+        return {gid: (g["fitness"]["total"], g["fitness"]["total"] - bonus[gid]) for gid, g in valid.items()}
+    ok = [g["fitness"] for g in valid.values() if g["fitness"].get("status") == "OK"]
+    top = {k: max(((f.get(k) or 0) for f in ok), default=0) for k in ("coverage", "features", "exec_per_sec")}
+    w = (fit_cfg["W_COVERAGE"], fit_cfg["W_FEATURES"], fit_cfg["W_EXEC"], fit_cfg["W_STABILITY"])
+    out = {}
+    for gid, g in valid.items():
+        f = g["fitness"]
+        if f.get("status") != "OK":
+            base = 0.0
+        else:
+            def term(k):
+                return (f.get(k) or 0) / top[k] if top[k] else 0.0
+            base = (w[0] * term("coverage") + w[1] * term("features") + w[2] * term("exec_per_sec")
+                    + w[3] * (f.get("stability") or 0.0))
+        out[gid] = (base + bonus[gid], base)
+    return out
+
+
 def _cov(rec: dict) -> dict:
     return (rec or {}).get("coverage") or {}
 
@@ -68,13 +102,14 @@ def load_runs(out_dir: Path, arm: str) -> list[dict[str, Any]]:
         if m.get("status") != "completed" or not ev_path.exists():
             continue
         ev = json.loads(ev_path.read_text())["results"]
-        g0, fb = _cov(ev.get("gen0_best")), _cov(ev.get("final_best"))
+        g0, fb, nb = _cov(ev.get("gen0_best")), _cov(ev.get("final_best")), _cov(ev.get("final_best_nobonus"))
         usage = [json.loads(x) for x in (d / "usage_log.jsonl").read_text().splitlines()] if (d / "usage_log.jsonl").exists() else []
-        genomes = {}
-        for gp in sorted(d.glob("evolution/gen_*/*.json")):      # last saved state of each genome
-            g = json.loads(gp.read_text(encoding="utf-8"))
-            genomes[g["genome_id"]] = g
+        genomes = last_genome_states(d)
+        totals = recompute_totals(genomes, m.get("fitness", {}))
         fit = [g["fitness"] for g in genomes.values()]
+        top_with = max(totals, key=lambda k: totals[k][0]) if totals else None
+        top_wo = max(totals, key=lambda k: totals[k][1]) if totals else None
+        final_id = (ev.get("final_best") or {}).get("genome_id")
         rules = [g.get("meta", {}).get("strategy_rule") for g in genomes.values() if g.get("meta", {}).get("strategy_rule")]
         rows.append({
             "arm": arm, "project": m["project"], "rep": m["repetition_index"], "run_id": m["run_id"],
@@ -84,6 +119,9 @@ def load_runs(out_dir: Path, arm: str) -> list[dict[str, Any]]:
             "final_status": fb.get("status"), "final_covered": fb.get("covered"), "final_total": fb.get("total"),
             "final_pct": fb.get("percent"),
             "final_is_gen0": bool(ev.get("final_best", {}).get("reused_from")),
+            "nobonus_status": nb.get("status"), "nobonus_covered": nb.get("covered"), "nobonus_pct": nb.get("percent"),
+            "final_matches_recomputed_top": None if final_id is None else final_id == top_with,
+            "final_has_library_crash": bool(final_id and genomes.get(final_id, {}).get("fitness", {}).get("library_crash")),
             "generations_run": m.get("generations_run"),
             "secs_initial_generation": m["phases"].get("initial_generation", {}).get("seconds"),
             "secs_initial_evaluation": m["phases"].get("initial_evaluation", {}).get("seconds"),
@@ -100,16 +138,7 @@ def load_runs(out_dir: Path, arm: str) -> list[dict[str, Any]]:
             "harness_failure_genomes": sum(1 for f in fit if str(f.get("discard_reason") or "").startswith("harness_failure")),
             "rule_low_stability": rules.count("low_stability"), "rule_path_plateau": rules.count("path_plateau"),
             "rule_uniform": rules.count("uniform"), "rule_random": rules.count("random"),
-            "bonus_changed_top": _bonus_changed_top(genomes, m.get("fitness", {}).get("crash_bonus_lambda", 0.0)),
+            "bonus_changed_top": None if top_with is None else top_with != top_wo,
         })
     return rows
 
-
-def _bonus_changed_top(genomes: dict, lam: float) -> Optional[bool]:
-    """Post-hoc: would the top genome differ without the crash bonus (totals as last saved)?"""
-    valid = [g for g in genomes.values() if g.get("compile_ok")]
-    if not valid or not lam:
-        return None if not valid else False
-    top = max(valid, key=lambda g: g["fitness"]["total"])
-    top_wo = max(valid, key=lambda g: g["fitness"]["total"] - (lam if g["fitness"].get("library_crash") else 0.0))
-    return top["genome_id"] != top_wo["genome_id"]
