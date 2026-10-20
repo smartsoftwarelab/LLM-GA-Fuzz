@@ -1,0 +1,282 @@
+diff --git a/scripts/campaign/analyze.py b/scripts/campaign/analyze.py
+index 8c55600..be9ac10 100644
+--- a/scripts/campaign/analyze.py
++++ b/scripts/campaign/analyze.py
+@@ -40,29 +40,32 @@ lines = ["# Campaign analysis", "", f"runs: {len(rows)} ({arm_counts})", ""]
+ 
+ # ---- per target, per arm: gen0_best vs final_best -----------------------------------------
+ per_target_rows, improvements = [], {}
+-for arm in arms:
+-    lines += [f"## Arm `{arm}`: final best vs. generation-0 best (branch coverage, %)", "",
++VARIANTS = [("final", "final best")]
++if any(r["nobonus_status"] for r in rows):
++    VARIANTS.append(("nobonus", "final best without crash bonus (post-hoc)"))
++for arm, (var, title) in [(a, v) for a in arms for v in VARIANTS]:
++    lines += [f"## Arm `{arm}`: {title} vs. generation-0 best (branch coverage, %)", "",
+               "| target | runs | gen0 median [IQR] | final median [IQR] | improvement median | A12(final,gen0) | final>gen0 / = / < |",
+               "|---|---|---|---|---|---|---|"]
+-    improvements[arm] = {}
++    improvements[(arm, var)] = {}
+     for project in sorted({r["project"] for r in rows if r["arm"] == arm}):
+         rs = [r for r in rows if r["arm"] == arm and r["project"] == project
+-              and r["gen0_status"] in MEASURED and r["final_status"] in MEASURED]
++              and r["gen0_status"] in MEASURED and r[f"{var}_status"] in MEASURED]
+         g0 = [r["gen0_pct"] for r in rs]
+-        fb = [r["final_pct"] for r in rs]
+-        imp = [x for x in (rel_improvement(r["gen0_covered"], r["final_covered"]) for r in rs) if x is not None]
+-        improvements[arm][project] = imp
++        fb = [r[f"{var}_pct"] for r in rs]
++        imp = [x for x in (rel_improvement(r["gen0_covered"], r[f"{var}_covered"]) for r in rs) if x is not None]
++        improvements[(arm, var)][project] = imp
+         (gm, g1, g3), (fm, f1, f3), (im, _, _) = median_iqr(g0), median_iqr(fb), median_iqr(imp)
+         eff = a12(fb, g0)
+         signs = (sum(f > g for f, g in zip(fb, g0)), sum(f == g for f, g in zip(fb, g0)), sum(f < g for f, g in zip(fb, g0)))
+         fmt = lambda v: "-" if v is None else f"{v:.2f}"  # noqa: E731
+         lines.append(f"| {project} | {len(rs)} | {fmt(gm)} [{fmt(g1)}, {fmt(g3)}] | {fmt(fm)} [{fmt(f1)}, {fmt(f3)}] | "
+                      f"{'-' if im is None else f'{im * 100:+.1f}%'} | {fmt(eff)} | {signs[0]}/{signs[1]}/{signs[2]} |")
+-        per_target_rows.append({"arm": arm, "target": project, "runs": len(rs), "gen0_median": gm, "final_median": fm,
++        per_target_rows.append({"arm": arm, "variant": var, "target": project, "runs": len(rs), "gen0_median": gm, "final_median": fm,
+                                 "improvement_median": im, "a12_final_vs_gen0": eff,
+                                 "final_gt": signs[0], "eq": signs[1], "final_lt": signs[2]})
+-    point, lo, hi = hier_bootstrap_median(improvements[arm])
+-    unmeasured = sum(1 for r in rows if r["arm"] == arm and not (r["gen0_status"] in MEASURED and r["final_status"] in MEASURED))
++    point, lo, hi = hier_bootstrap_median(improvements[(arm, var)])
++    unmeasured = sum(1 for r in rows if r["arm"] == arm and not (r["gen0_status"] in MEASURED and r[f"{var}_status"] in MEASURED))
+     lines += ["", f"Campaign improvement (median of target medians): "
+               + ("-" if point is None else f"{point * 100:+.1f}% (95% hierarchical bootstrap CI {lo * 100:+.1f}% .. {hi * 100:+.1f}%)"),
+               f"Runs excluded because a coverage measurement failed (status not OK/NO_COVERAGE): {unmeasured}", ""]
+@@ -126,11 +129,14 @@ if None not in (args.price_input, args.price_cached, args.price_output):
+         lines.append(f"\nLLM cost `{arm}`: ${usd:.2f} total, ${usd / len(rs):.3f} per run (prices given on the command line)")
+ lines += ["", "## Crashes and strategy rules (sums over runs)", "",
+           "| arm | runs w/ library crash | library-crash genomes | harness-failure genomes | bonus changed top genome (runs) | "
+-          "rule low_stability / path_plateau / uniform / random | usage missing |", "|---|---|---|---|---|---|---|"]
++          "final best has library crash (runs) | final best == recomputed top (runs) | "
++          "rule low_stability / path_plateau / uniform / random | usage missing |", "|---|---|---|---|---|---|---|---|---|"]
+ for arm in arms:
+     rs = [r for r in rows if r["arm"] == arm]
+     lines.append(f"| {arm} | {sum(1 for r in rs if r['library_crash_genomes'])} | {sum(r['library_crash_genomes'] for r in rs)} | "
+                  f"{sum(r['harness_failure_genomes'] for r in rs)} | {sum(1 for r in rs if r['bonus_changed_top'])} | "
++                 f"{sum(1 for r in rs if r['final_has_library_crash'])} | "
++                 f"{sum(1 for r in rs if r['final_matches_recomputed_top'])}/{len(rs)} | "
+                  f"{sum(r['rule_low_stability'] for r in rs)} / {sum(r['rule_path_plateau'] for r in rs)} / "
+                  f"{sum(r['rule_uniform'] for r in rs)} / {sum(r['rule_random'] for r in rs)} | {sum(r['usage_missing'] for r in rs)} |")
+ 
+diff --git a/scripts/campaign/eval_run.py b/scripts/campaign/eval_run.py
+index 64fb434..97da8a5 100644
+--- a/scripts/campaign/eval_run.py
++++ b/scripts/campaign/eval_run.py
+@@ -2,7 +2,9 @@
+ baseline) and the best final harness, each fuzzed for the same time with the same seed.
+ 
+ Usage: python scripts/campaign/eval_run.py <target_dir> --cfg <run config.yaml> [--minutes 5]
+-Writes <target_dir>/eval/eval_results.json
++       [--labels gen0_best,final_best,final_best_nobonus]
++Writes/extends <target_dir>/eval/eval_results.json (labels already evaluated are kept).
++final_best_nobonus = top genome of the same run without the crash bonus (post-hoc selection effect).
+ """
+ import argparse
+ import json
+@@ -12,12 +14,13 @@ from pathlib import Path
+ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+ from agent.eval import process_single_result  # noqa: E402
+ from bench_cfg import BenchConfig  # noqa: E402
+-from utils.campaign import pick_final_best, pick_gen0_best  # noqa: E402
++from utils.campaign import pick_best_without_bonus, pick_final_best, pick_gen0_best  # noqa: E402
+ 
+ ap = argparse.ArgumentParser()
+ ap.add_argument("target_dir")
+ ap.add_argument("--cfg", required=True)
+ ap.add_argument("--minutes", type=int, default=5)
++ap.add_argument("--labels", default="gen0_best,final_best,final_best_nobonus")
+ args = ap.parse_args()
+ 
+ target_dir = Path(args.target_dir).resolve()
+@@ -26,9 +29,17 @@ fuzzer_info = next(iter(sorted(target_dir.glob("run[0-9]*_*/fuzzer_info.json")))
+ if manifest.get("status") != "completed" or fuzzer_info is None:
+     sys.exit(f"cannot evaluate {target_dir}: status={manifest.get('status')} fuzzer_info={fuzzer_info}")
+ 
+-results = {}
+-first_by_genome = {}
+-for label, genome in (("gen0_best", pick_gen0_best(target_dir)), ("final_best", pick_final_best(target_dir))):
++out = target_dir / "eval" / "eval_results.json"
++previous = json.loads(out.read_text()) if out.exists() else {}
++if previous and previous.get("fuzz_minutes") != args.minutes:
++    sys.exit(f"existing results used {previous.get('fuzz_minutes')} min, not {args.minutes}")
++results = previous.get("results", {})
++first_by_genome = {r["genome_id"]: lbl for lbl, r in results.items() if r.get("genome_id") and "reused_from" not in r}
++pickers = {"gen0_best": pick_gen0_best, "final_best": pick_final_best, "final_best_nobonus": pick_best_without_bonus}
++for label in args.labels.split(","):
++    if label in results:
++        continue
++    genome = pickers[label](target_dir)
+     if genome is None:
+         results[label] = {"genome_id": None, "coverage": {"status": "TOOL_FAILED", "error_message": "no genome"}}
+         continue
+@@ -48,7 +59,6 @@ for label, genome in (("gen0_best", pick_gen0_best(target_dir)), ("final_best",
+                       "fitness_total": genome["fitness"]["total"], **record}
+     first_by_genome[genome["genome_id"]] = label
+ 
+-out = target_dir / "eval" / "eval_results.json"
+ out.parent.mkdir(parents=True, exist_ok=True)
+ out.write_text(json.dumps({"fuzz_minutes": args.minutes, "results": results}, indent=2))
+ for label, r in results.items():
+diff --git a/tests/test_p07_analysis.py b/tests/test_p07_analysis.py
+index c480b20..4970560 100644
+--- a/tests/test_p07_analysis.py
++++ b/tests/test_p07_analysis.py
+@@ -1,7 +1,7 @@
+ """PATCH 7: analysis statistics."""
+ import pytest
+ 
+-from utils.analysis import _bonus_changed_top, a12, hier_bootstrap_median, median_iqr, rel_improvement
++from utils.analysis import a12, hier_bootstrap_median, median_iqr, recompute_totals, rel_improvement
+ 
+ 
+ def test_a12_definition():
+@@ -29,9 +29,27 @@ def test_median_iqr():
+     assert median_iqr([1, 2, 3, 4, 5]) == (3.0, 2.0, 4.0)
+ 
+ 
+-def test_bonus_changed_top():
+-    g = lambda gid, tot, crash: {"genome_id": gid, "compile_ok": True,  # noqa: E731
+-                                 "fitness": {"total": tot, "library_crash": crash}}
+-    assert _bonus_changed_top({"a": g("a", 1.5, True), "b": g("b", 0.95, False)}, 0.6) is True   # 0.9 < 0.95
+-    assert _bonus_changed_top({"a": g("a", 1.7, True), "b": g("b", 0.95, False)}, 0.6) is False  # 1.1 > 0.95
+-    assert _bonus_changed_top({"a": g("a", 0.9, False)}, 0.0) is False
++CFG = {"normalization": "pool_max", "crash_bonus_lambda": 0.6,
++       "W_COVERAGE": 0.45, "W_FEATURES": 0.25, "W_EXEC": 0.10, "W_STABILITY": 0.20}
++
++
++def _g(cov, ft, ex, crash, ok=True, status="OK"):
++    return {"compile_ok": ok, "fitness": {"status": status, "coverage": cov, "features": ft,
++                                          "exec_per_sec": ex, "stability": 1.0, "library_crash": crash, "total": 0}}
++
++
++def test_recompute_totals_pool_max_and_bonus():
++    gs = {"crasher": _g(50, 10, 5, True), "coverer": _g(100, 20, 10, False)}
++    t = recompute_totals(gs, CFG)
++    assert t["coverer"] == (pytest.approx(1.0), pytest.approx(1.0))
++    assert t["crasher"][1] == pytest.approx(0.45 * 0.5 + 0.25 * 0.5 + 0.10 * 0.5 + 0.20)
++    assert t["crasher"][0] == pytest.approx(t["crasher"][1] + 0.6)
++    top_with = max(t, key=lambda k: t[k][0])
++    top_wo = max(t, key=lambda k: t[k][1])
++    assert (top_with, top_wo) == ("crasher", "coverer")       # the bonus changes the top genome
++
++
++def test_recompute_ignores_uncompiled_and_unmeasured():
++    gs = {"a": _g(10, 1, 1, False), "b": _g(None, None, None, False, status="NO_STATS"), "c": _g(99, 9, 9, False, ok=False)}
++    t = recompute_totals(gs, CFG)
++    assert set(t) == {"a", "b"} and t["b"] == (0.0, 0.0)
+diff --git a/utils/analysis.py b/utils/analysis.py
+index 66116b9..5802e11 100644
+--- a/utils/analysis.py
++++ b/utils/analysis.py
+@@ -54,6 +54,40 @@ def median_iqr(values: list[float]) -> tuple[Optional[float], Optional[float], O
+     return float(med), float(q1), float(q3)
+ 
+ 
++def last_genome_states(target_dir: Path) -> dict[str, dict]:
++    """Last saved JSON of every genome of a run (gen_000 ... gen_N)."""
++    genomes: dict[str, dict] = {}
++    for gp in sorted(Path(target_dir).glob("evolution/gen_*/*.json")):
++        g = json.loads(gp.read_text(encoding="utf-8"))
++        genomes[g["genome_id"]] = g
++    return genomes
++
++
++def recompute_totals(genomes: dict[str, dict], fit_cfg: dict) -> dict[str, tuple[float, float]]:
++    """End-of-run fitness of every compiled genome against the final pool (pool_max):
++    {genome_id: (total with crash bonus, total without)}. Other modes use the saved totals."""
++    valid = {gid: g for gid, g in genomes.items() if g.get("compile_ok")}
++    lam = fit_cfg.get("crash_bonus_lambda") or 0.0
++    bonus = {gid: (lam if g["fitness"].get("library_crash") else 0.0) for gid, g in valid.items()}
++    if fit_cfg.get("normalization") != "pool_max":
++        return {gid: (g["fitness"]["total"], g["fitness"]["total"] - bonus[gid]) for gid, g in valid.items()}
++    ok = [g["fitness"] for g in valid.values() if g["fitness"].get("status") == "OK"]
++    top = {k: max(((f.get(k) or 0) for f in ok), default=0) for k in ("coverage", "features", "exec_per_sec")}
++    w = (fit_cfg["W_COVERAGE"], fit_cfg["W_FEATURES"], fit_cfg["W_EXEC"], fit_cfg["W_STABILITY"])
++    out = {}
++    for gid, g in valid.items():
++        f = g["fitness"]
++        if f.get("status") != "OK":
++            base = 0.0
++        else:
++            def term(k):
++                return (f.get(k) or 0) / top[k] if top[k] else 0.0
++            base = (w[0] * term("coverage") + w[1] * term("features") + w[2] * term("exec_per_sec")
++                    + w[3] * (f.get("stability") or 0.0))
++        out[gid] = (base + bonus[gid], base)
++    return out
++
++
+ def _cov(rec: dict) -> dict:
+     return (rec or {}).get("coverage") or {}
+ 
+@@ -68,13 +102,14 @@ def load_runs(out_dir: Path, arm: str) -> list[dict[str, Any]]:
+         if m.get("status") != "completed" or not ev_path.exists():
+             continue
+         ev = json.loads(ev_path.read_text())["results"]
+-        g0, fb = _cov(ev.get("gen0_best")), _cov(ev.get("final_best"))
++        g0, fb, nb = _cov(ev.get("gen0_best")), _cov(ev.get("final_best")), _cov(ev.get("final_best_nobonus"))
+         usage = [json.loads(x) for x in (d / "usage_log.jsonl").read_text().splitlines()] if (d / "usage_log.jsonl").exists() else []
+-        genomes = {}
+-        for gp in sorted(d.glob("evolution/gen_*/*.json")):      # last saved state of each genome
+-            g = json.loads(gp.read_text(encoding="utf-8"))
+-            genomes[g["genome_id"]] = g
++        genomes = last_genome_states(d)
++        totals = recompute_totals(genomes, m.get("fitness", {}))
+         fit = [g["fitness"] for g in genomes.values()]
++        top_with = max(totals, key=lambda k: totals[k][0]) if totals else None
++        top_wo = max(totals, key=lambda k: totals[k][1]) if totals else None
++        final_id = (ev.get("final_best") or {}).get("genome_id")
+         rules = [g.get("meta", {}).get("strategy_rule") for g in genomes.values() if g.get("meta", {}).get("strategy_rule")]
+         rows.append({
+             "arm": arm, "project": m["project"], "rep": m["repetition_index"], "run_id": m["run_id"],
+@@ -84,6 +119,9 @@ def load_runs(out_dir: Path, arm: str) -> list[dict[str, Any]]:
+             "final_status": fb.get("status"), "final_covered": fb.get("covered"), "final_total": fb.get("total"),
+             "final_pct": fb.get("percent"),
+             "final_is_gen0": bool(ev.get("final_best", {}).get("reused_from")),
++            "nobonus_status": nb.get("status"), "nobonus_covered": nb.get("covered"), "nobonus_pct": nb.get("percent"),
++            "final_matches_recomputed_top": None if final_id is None else final_id == top_with,
++            "final_has_library_crash": bool(final_id and genomes.get(final_id, {}).get("fitness", {}).get("library_crash")),
+             "generations_run": m.get("generations_run"),
+             "secs_initial_generation": m["phases"].get("initial_generation", {}).get("seconds"),
+             "secs_initial_evaluation": m["phases"].get("initial_evaluation", {}).get("seconds"),
+@@ -100,16 +138,7 @@ def load_runs(out_dir: Path, arm: str) -> list[dict[str, Any]]:
+             "harness_failure_genomes": sum(1 for f in fit if str(f.get("discard_reason") or "").startswith("harness_failure")),
+             "rule_low_stability": rules.count("low_stability"), "rule_path_plateau": rules.count("path_plateau"),
+             "rule_uniform": rules.count("uniform"), "rule_random": rules.count("random"),
+-            "bonus_changed_top": _bonus_changed_top(genomes, m.get("fitness", {}).get("crash_bonus_lambda", 0.0)),
++            "bonus_changed_top": None if top_with is None else top_with != top_wo,
+         })
+     return rows
+ 
+-
+-def _bonus_changed_top(genomes: dict, lam: float) -> Optional[bool]:
+-    """Post-hoc: would the top genome differ without the crash bonus (totals as last saved)?"""
+-    valid = [g for g in genomes.values() if g.get("compile_ok")]
+-    if not valid or not lam:
+-        return None if not valid else False
+-    top = max(valid, key=lambda g: g["fitness"]["total"])
+-    top_wo = max(valid, key=lambda g: g["fitness"]["total"] - (lam if g["fitness"].get("library_crash") else 0.0))
+-    return top["genome_id"] != top_wo["genome_id"]
+diff --git a/utils/campaign.py b/utils/campaign.py
+index 8061b0b..6966923 100644
+--- a/utils/campaign.py
++++ b/utils/campaign.py
+@@ -81,6 +81,15 @@ def pick_gen0_best(target_dir: Path) -> Optional[dict]:
+     return max(valid, key=lambda g: g["fitness"]["total"]) if valid else None
+ 
+ 
++def pick_best_without_bonus(target_dir: Path) -> Optional[dict]:
++    """Top genome when the crash bonus is removed from the end-of-run fitness (post-hoc, same run)."""
++    from utils.analysis import last_genome_states, recompute_totals
++    manifest = json.loads((Path(target_dir) / "run_manifest.json").read_text())
++    genomes = last_genome_states(target_dir)
++    totals = recompute_totals(genomes, manifest.get("fitness", {}))
++    return genomes[max(totals, key=lambda k: totals[k][1])] if totals else None
++
++
+ def pick_final_best(target_dir: Path) -> Optional[dict]:
+     hits = sorted((target_dir / "evolution" / "final").glob("best_01_*.json"))
+     return json.loads(hits[0].read_text(encoding="utf-8")) if hits else None

@@ -1,0 +1,309 @@
+diff --git a/scripts/campaign/analyze.py b/scripts/campaign/analyze.py
+new file mode 100644
+index 0000000..8c55600
+--- /dev/null
++++ b/scripts/campaign/analyze.py
+@@ -0,0 +1,139 @@
++"""Campaign analysis: per-run table, per-target summary, campaign-level estimates, costs, ablations.
++
++Usage:
++  python scripts/campaign/analyze.py --arm full=outputs/campaign [--arm lambda0=outputs/campaign_lambda0]
++         [--report campaign/analysis] [--price-input X --price-cached Y --price-output Z]   (USD per 1M tokens)
++Writes runs.csv, per_target.csv, summary.md to --report. Definitions: utils/analysis.py docstring.
++The mixed-effects model needs statsmodels (optional; skipped with a note if missing).
++"""
++import argparse
++import csv
++import sys
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
++from utils.analysis import a12, hier_bootstrap_median, load_runs, median_iqr, rel_improvement  # noqa: E402
++
++ap = argparse.ArgumentParser()
++ap.add_argument("--arm", action="append", default=None, help="name=dir (repeatable); default full=outputs/campaign")
++ap.add_argument("--report", default="outputs/analysis")
++ap.add_argument("--price-input", type=float, default=None)
++ap.add_argument("--price-cached", type=float, default=None)
++ap.add_argument("--price-output", type=float, default=None)
++args = ap.parse_args()
++
++arms = dict(a.split("=", 1) for a in (args.arm or ["full=outputs/campaign"]))
++rows = [r for name, d in arms.items() for r in load_runs(Path(d), name)]
++report = Path(args.report)
++report.mkdir(parents=True, exist_ok=True)
++if not rows:
++    sys.exit("no completed + evaluated runs found")
++
++with (report / "runs.csv").open("w", newline="") as f:
++    w = csv.DictWriter(f, fieldnames=list(rows[0]))
++    w.writeheader()
++    w.writerows(rows)
++
++MEASURED = ("OK", "NO_COVERAGE")
++arm_counts = ", ".join(f"{a}: {sum(1 for r in rows if r['arm'] == a)}" for a in arms)
++lines = ["# Campaign analysis", "", f"runs: {len(rows)} ({arm_counts})", ""]
++
++# ---- per target, per arm: gen0_best vs final_best -----------------------------------------
++per_target_rows, improvements = [], {}
++for arm in arms:
++    lines += [f"## Arm `{arm}`: final best vs. generation-0 best (branch coverage, %)", "",
++              "| target | runs | gen0 median [IQR] | final median [IQR] | improvement median | A12(final,gen0) | final>gen0 / = / < |",
++              "|---|---|---|---|---|---|---|"]
++    improvements[arm] = {}
++    for project in sorted({r["project"] for r in rows if r["arm"] == arm}):
++        rs = [r for r in rows if r["arm"] == arm and r["project"] == project
++              and r["gen0_status"] in MEASURED and r["final_status"] in MEASURED]
++        g0 = [r["gen0_pct"] for r in rs]
++        fb = [r["final_pct"] for r in rs]
++        imp = [x for x in (rel_improvement(r["gen0_covered"], r["final_covered"]) for r in rs) if x is not None]
++        improvements[arm][project] = imp
++        (gm, g1, g3), (fm, f1, f3), (im, _, _) = median_iqr(g0), median_iqr(fb), median_iqr(imp)
++        eff = a12(fb, g0)
++        signs = (sum(f > g for f, g in zip(fb, g0)), sum(f == g for f, g in zip(fb, g0)), sum(f < g for f, g in zip(fb, g0)))
++        fmt = lambda v: "-" if v is None else f"{v:.2f}"  # noqa: E731
++        lines.append(f"| {project} | {len(rs)} | {fmt(gm)} [{fmt(g1)}, {fmt(g3)}] | {fmt(fm)} [{fmt(f1)}, {fmt(f3)}] | "
++                     f"{'-' if im is None else f'{im * 100:+.1f}%'} | {fmt(eff)} | {signs[0]}/{signs[1]}/{signs[2]} |")
++        per_target_rows.append({"arm": arm, "target": project, "runs": len(rs), "gen0_median": gm, "final_median": fm,
++                                "improvement_median": im, "a12_final_vs_gen0": eff,
++                                "final_gt": signs[0], "eq": signs[1], "final_lt": signs[2]})
++    point, lo, hi = hier_bootstrap_median(improvements[arm])
++    unmeasured = sum(1 for r in rows if r["arm"] == arm and not (r["gen0_status"] in MEASURED and r["final_status"] in MEASURED))
++    lines += ["", f"Campaign improvement (median of target medians): "
++              + ("-" if point is None else f"{point * 100:+.1f}% (95% hierarchical bootstrap CI {lo * 100:+.1f}% .. {hi * 100:+.1f}%)"),
++              f"Runs excluded because a coverage measurement failed (status not OK/NO_COVERAGE): {unmeasured}", ""]
++
++with (report / "per_target.csv").open("w", newline="") as f:
++    w = csv.DictWriter(f, fieldnames=list(per_target_rows[0]))
++    w.writeheader()
++    w.writerows(per_target_rows)
++
++# ---- mixed-effects model: coverage ~ variant, random intercept target, run nested in target ----
++try:
++    import pandas as pd
++    import statsmodels.formula.api as smf
++    for arm in arms:
++        long = []
++        for r in rows:
++            if r["arm"] == arm and r["gen0_status"] in MEASURED and r["final_status"] in MEASURED:
++                long += [{"target": r["project"], "run": f"{r['project']}_{r['rep']}", "variant": v, "pct": r[f"{v}_pct"]}
++                         for v in ("gen0", "final")]
++        df = pd.DataFrame(long)
++        model = smf.mixedlm("pct ~ C(variant, Treatment('gen0'))", df, groups=df["target"],
++                            vc_formula={"run": "0 + C(run)"}).fit(reml=True)
++        name = [p for p in model.params.index if "variant" in p][0]
++        ci = model.conf_int().loc[name]
++        lines += [f"Mixed model (`{arm}`): final - gen0 = {model.params[name]:+.3f} pp "
++                  f"(95% CI {ci[0]:+.3f} .. {ci[1]:+.3f}, p = {model.pvalues[name]:.4f}); "
++                  f"groups: {df['target'].nunique()} targets, {df['run'].nunique()} runs", ""]
++except ImportError as exc:
++    lines += [f"Mixed model skipped: {exc} (pip install statsmodels)", ""]
++except Exception as exc:  # e.g. too few targets for the variance components
++    lines += [f"Mixed model failed: {type(exc).__name__}: {exc}", ""]
++
++# ---- ablation: final best of each arm vs. full, same targets ----------------------------------
++if "full" in arms and len(arms) > 1:
++    lines += ["## Ablations: final best coverage vs. `full` (A12 = P(full > arm))", "", "| arm | target | A12 |", "|---|---|---|"]
++    for arm in [a for a in arms if a != "full"]:
++        for project in sorted({r["project"] for r in rows if r["arm"] == arm}):
++            fa = [r["final_pct"] for r in rows if r["arm"] == "full" and r["project"] == project and r["final_status"] in MEASURED]
++            fx = [r["final_pct"] for r in rows if r["arm"] == arm and r["project"] == project and r["final_status"] in MEASURED]
++            v = a12(fa, fx)
++            lines.append(f"| {arm} | {project} | {'-' if v is None else f'{v:.2f}'} |")
++    lines.append("")
++
++# ---- cost, time, crashes, strategy rules ---------------------------------------------------------
++def med(key, arm):
++    m, q1, q3 = median_iqr([r[key] for r in rows if r["arm"] == arm and r[key] is not None])
++    return "-" if m is None else f"{m:,.0f} [{q1:,.0f}, {q3:,.0f}]"
++
++
++lines += ["## Cost and time per run (median [IQR])", "", "| arm | LLM requests | prompt tok | cached tok | completion tok | "
++          "initial gen s | initial eval s | evolution s |", "|---|---|---|---|---|---|---|---|"]
++for arm in arms:
++    lines.append(f"| {arm} | {med('llm_requests', arm)} | {med('prompt_tokens', arm)} | {med('cached_prompt_tokens', arm)} | "
++                 f"{med('completion_tokens', arm)} | {med('secs_initial_generation', arm)} | "
++                 f"{med('secs_initial_evaluation', arm)} | {med('secs_evolution', arm)} |")
++if None not in (args.price_input, args.price_cached, args.price_output):
++    for arm in arms:
++        rs = [r for r in rows if r["arm"] == arm]
++        usd = sum(((r["prompt_tokens"] - r["cached_prompt_tokens"]) * args.price_input + r["cached_prompt_tokens"] * args.price_cached
++                   + r["completion_tokens"] * args.price_output) / 1e6 for r in rs)
++        lines.append(f"\nLLM cost `{arm}`: ${usd:.2f} total, ${usd / len(rs):.3f} per run (prices given on the command line)")
++lines += ["", "## Crashes and strategy rules (sums over runs)", "",
++          "| arm | runs w/ library crash | library-crash genomes | harness-failure genomes | bonus changed top genome (runs) | "
++          "rule low_stability / path_plateau / uniform / random | usage missing |", "|---|---|---|---|---|---|---|"]
++for arm in arms:
++    rs = [r for r in rows if r["arm"] == arm]
++    lines.append(f"| {arm} | {sum(1 for r in rs if r['library_crash_genomes'])} | {sum(r['library_crash_genomes'] for r in rs)} | "
++                 f"{sum(r['harness_failure_genomes'] for r in rs)} | {sum(1 for r in rs if r['bonus_changed_top'])} | "
++                 f"{sum(r['rule_low_stability'] for r in rs)} / {sum(r['rule_path_plateau'] for r in rs)} / "
++                 f"{sum(r['rule_uniform'] for r in rs)} / {sum(r['rule_random'] for r in rs)} | {sum(r['usage_missing'] for r in rs)} |")
++
++(report / "summary.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
++print("\n".join(lines))
++print(f"\nwritten: {report}/runs.csv, per_target.csv, summary.md")
+diff --git a/tests/test_p07_analysis.py b/tests/test_p07_analysis.py
+new file mode 100644
+index 0000000..c480b20
+--- /dev/null
++++ b/tests/test_p07_analysis.py
+@@ -0,0 +1,37 @@
++"""PATCH 7: analysis statistics."""
++import pytest
++
++from utils.analysis import _bonus_changed_top, a12, hier_bootstrap_median, median_iqr, rel_improvement
++
++
++def test_a12_definition():
++    assert a12([3, 4], [1, 2]) == 1.0
++    assert a12([1, 2], [3, 4]) == 0.0
++    assert a12([1, 2], [1, 2]) == 0.5
++    assert a12([], [1]) is None
++
++
++def test_rel_improvement_undefined_for_zero_baseline():
++    assert rel_improvement(100, 120) == pytest.approx(0.2)
++    assert rel_improvement(139, 109) == pytest.approx(-30 / 139)
++    assert rel_improvement(0, 5) is None and rel_improvement(None, 5) is None
++
++
++def test_hier_bootstrap_is_seeded_and_brackets_the_point():
++    data = {"a": [0.1, 0.2, 0.3], "b": [-0.1, 0.0, 0.1], "c": [0.4, 0.5, 0.6]}
++    p1 = hier_bootstrap_median(data, n_boot=2000, seed=1)
++    p2 = hier_bootstrap_median(data, n_boot=2000, seed=1)
++    assert p1 == p2 and p1[1] <= p1[0] <= p1[2] and p1[0] == pytest.approx(0.2)
++    assert hier_bootstrap_median({}) == (None, None, None)
++
++
++def test_median_iqr():
++    assert median_iqr([1, 2, 3, 4, 5]) == (3.0, 2.0, 4.0)
++
++
++def test_bonus_changed_top():
++    g = lambda gid, tot, crash: {"genome_id": gid, "compile_ok": True,  # noqa: E731
++                                 "fitness": {"total": tot, "library_crash": crash}}
++    assert _bonus_changed_top({"a": g("a", 1.5, True), "b": g("b", 0.95, False)}, 0.6) is True   # 0.9 < 0.95
++    assert _bonus_changed_top({"a": g("a", 1.7, True), "b": g("b", 0.95, False)}, 0.6) is False  # 1.1 > 0.95
++    assert _bonus_changed_top({"a": g("a", 0.9, False)}, 0.0) is False
+diff --git a/utils/analysis.py b/utils/analysis.py
+new file mode 100644
+index 0000000..66116b9
+--- /dev/null
++++ b/utils/analysis.py
+@@ -0,0 +1,115 @@
++"""Statistics for the campaign analysis (numpy only; the mixed model lives in the script).
++
++Definitions used in every table of the paper:
++- coverage   : llvm-cov branch coverage of the target library, covered / total (percent).
++- improvement: per run, r = (final_best - gen0_best) / gen0_best on covered branches; a target's
++               improvement is the median r over its repetitions; the campaign improvement is the
++               median of target medians, with a hierarchical bootstrap CI (targets, then runs).
++- effect size: Vargha-Delaney A12(final, gen0) per target over repetitions: probability that a
++               random final-best run covers more branches than a random gen0-best run (ties 0.5).
++"""
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from typing import Any, Optional
++
++import numpy as np
++
++
++def a12(x: list[float], y: list[float]) -> Optional[float]:
++    if not x or not y:
++        return None
++    gt = sum(1.0 for a in x for b in y if a > b)
++    eq = sum(0.5 for a in x for b in y if a == b)
++    return (gt + eq) / (len(x) * len(y))
++
++
++def rel_improvement(gen0: Optional[float], final: Optional[float]) -> Optional[float]:
++    if gen0 is None or final is None or gen0 == 0:
++        return None
++    return (final - gen0) / gen0
++
++
++def hier_bootstrap_median(per_target: dict[str, list[float]], n_boot: int = 10000,
++                          seed: int = 0, alpha: float = 0.05) -> tuple[Optional[float], Optional[float], Optional[float]]:
++    """Median of per-target medians and its (1-alpha) CI: resample targets, then runs within each."""
++    groups = [np.asarray(v, dtype=float) for v in per_target.values() if len(v)]
++    if not groups:
++        return None, None, None
++    point = float(np.median([np.median(g) for g in groups]))
++    rng = np.random.default_rng(seed)
++    stats = np.empty(n_boot)
++    for i in range(n_boot):
++        picked = rng.integers(0, len(groups), len(groups))
++        stats[i] = np.median([np.median(rng.choice(groups[j], len(groups[j]))) for j in picked])
++    lo, hi = np.quantile(stats, [alpha / 2, 1 - alpha / 2])
++    return point, float(lo), float(hi)
++
++
++def median_iqr(values: list[float]) -> tuple[Optional[float], Optional[float], Optional[float]]:
++    if not values:
++        return None, None, None
++    q1, med, q3 = np.quantile(np.asarray(values, dtype=float), [0.25, 0.5, 0.75])
++    return float(med), float(q1), float(q3)
++
++
++def _cov(rec: dict) -> dict:
++    return (rec or {}).get("coverage") or {}
++
++
++def load_runs(out_dir: Path, arm: str) -> list[dict[str, Any]]:
++    """One row per completed run with evaluation, usage, timing and crash statistics."""
++    rows = []
++    for mp in sorted(Path(out_dir).glob("rep*/*/*/run_manifest.json")):
++        m = json.loads(mp.read_text())
++        d = mp.parent
++        ev_path = d / "eval" / "eval_results.json"
++        if m.get("status") != "completed" or not ev_path.exists():
++            continue
++        ev = json.loads(ev_path.read_text())["results"]
++        g0, fb = _cov(ev.get("gen0_best")), _cov(ev.get("final_best"))
++        usage = [json.loads(x) for x in (d / "usage_log.jsonl").read_text().splitlines()] if (d / "usage_log.jsonl").exists() else []
++        genomes = {}
++        for gp in sorted(d.glob("evolution/gen_*/*.json")):      # last saved state of each genome
++            g = json.loads(gp.read_text(encoding="utf-8"))
++            genomes[g["genome_id"]] = g
++        fit = [g["fitness"] for g in genomes.values()]
++        rules = [g.get("meta", {}).get("strategy_rule") for g in genomes.values() if g.get("meta", {}).get("strategy_rule")]
++        rows.append({
++            "arm": arm, "project": m["project"], "rep": m["repetition_index"], "run_id": m["run_id"],
++            "metric": g0.get("metric") or fb.get("metric"),
++            "gen0_status": g0.get("status"), "gen0_covered": g0.get("covered"), "gen0_total": g0.get("total"),
++            "gen0_pct": g0.get("percent"),
++            "final_status": fb.get("status"), "final_covered": fb.get("covered"), "final_total": fb.get("total"),
++            "final_pct": fb.get("percent"),
++            "final_is_gen0": bool(ev.get("final_best", {}).get("reused_from")),
++            "generations_run": m.get("generations_run"),
++            "secs_initial_generation": m["phases"].get("initial_generation", {}).get("seconds"),
++            "secs_initial_evaluation": m["phases"].get("initial_evaluation", {}).get("seconds"),
++            "secs_evolution": m["phases"].get("evolution", {}).get("seconds"),
++            "llm_requests": len(usage),
++            "llm_errors": sum(1 for u in usage if u["outcome"] != "ok"),
++            "prompt_tokens": sum(u["prompt_tokens"] or 0 for u in usage),
++            "cached_prompt_tokens": sum(u["cached_prompt_tokens"] or 0 for u in usage),
++            "completion_tokens": sum(u["completion_tokens"] or 0 for u in usage),
++            "usage_missing": sum(1 for u in usage if u["usage_source"] == "missing" and u["outcome"] == "ok"),
++            "genomes": len(genomes),
++            "genomes_compiled": sum(1 for g in genomes.values() if g.get("compile_ok")),
++            "library_crash_genomes": sum(1 for f in fit if f.get("library_crash")),
++            "harness_failure_genomes": sum(1 for f in fit if str(f.get("discard_reason") or "").startswith("harness_failure")),
++            "rule_low_stability": rules.count("low_stability"), "rule_path_plateau": rules.count("path_plateau"),
++            "rule_uniform": rules.count("uniform"), "rule_random": rules.count("random"),
++            "bonus_changed_top": _bonus_changed_top(genomes, m.get("fitness", {}).get("crash_bonus_lambda", 0.0)),
++        })
++    return rows
++
++
++def _bonus_changed_top(genomes: dict, lam: float) -> Optional[bool]:
++    """Post-hoc: would the top genome differ without the crash bonus (totals as last saved)?"""
++    valid = [g for g in genomes.values() if g.get("compile_ok")]
++    if not valid or not lam:
++        return None if not valid else False
++    top = max(valid, key=lambda g: g["fitness"]["total"])
++    top_wo = max(valid, key=lambda g: g["fitness"]["total"] - (lam if g["fitness"].get("library_crash") else 0.0))
++    return top["genome_id"] != top_wo["genome_id"]

@@ -81,6 +81,15 @@ def pick_gen0_best(target_dir: Path) -> Optional[dict]:
     return max(valid, key=lambda g: g["fitness"]["total"]) if valid else None
 
 
+def pick_best_without_bonus(target_dir: Path) -> Optional[dict]:
+    """Top genome when the crash bonus is removed from the end-of-run fitness (post-hoc, same run)."""
+    from utils.analysis import last_genome_states, recompute_totals
+    manifest = json.loads((Path(target_dir) / "run_manifest.json").read_text())
+    genomes = last_genome_states(target_dir)
+    totals = recompute_totals(genomes, manifest.get("fitness", {}))
+    return genomes[max(totals, key=lambda k: totals[k][1])] if totals else None
+
+
 def pick_final_best(target_dir: Path) -> Optional[dict]:
     hits = sorted((target_dir / "evolution" / "final").glob("best_01_*.json"))
     return json.loads(hits[0].read_text(encoding="utf-8")) if hits else None
