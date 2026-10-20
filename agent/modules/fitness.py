@@ -30,6 +30,13 @@ CRASH_BONUS    = 0.60     # default lambda: extra score for a crash inside the t
 
 NORMALIZATION_MODES = ("pool_max", "fixed", "rrf")
 
+# Near-init crash (cf. OSS-Fuzz-Gen FP_NEAR_INIT_CRASH, ossfuzz_gen/build_runner.py:46,240): the trial
+# crashed and averaged at most this many executions per fork job, i.e. the harness fails on (almost)
+# any input. Fork status lines print "#<executed units of finished jobs> ... job: <id>", and the run
+# still ends with "INFO: exiting:". Such a trial is a harness failure (no bonus, stability 0). None = off.
+NEAR_INIT_EXECS_PER_JOB = 3
+_FORK_STATUS_RE = re.compile(r"^#(\d+):\s+cov:.*?\bjob:\s*(\d+)", re.MULTILINE)
+
 # Trial outcome stored with every FitnessScores. Only STATUS_OK carries measured
 # libFuzzer statistics; every other status stores None for them, never 0.
 STATUS_OK             = "OK"
@@ -105,12 +112,14 @@ class FitnessConfig:
     rrf:      weighted reciprocal-rank fusion, (k+1)/(k+rank) per objective over the same pool
     """
 
-    def __init__(self, mode: str = "fixed", crash_bonus: float = CRASH_BONUS, rrf_k: int = 60) -> None:
+    def __init__(self, mode: str = "fixed", crash_bonus: float = CRASH_BONUS, rrf_k: int = 60,
+                 near_init_execs: Optional[float] = NEAR_INIT_EXECS_PER_JOB) -> None:
         if mode not in NORMALIZATION_MODES:
             raise ValueError(f"fitness_normalization must be one of {NORMALIZATION_MODES}, got {mode!r}")
         self.mode = mode
         self.crash_bonus = float(crash_bonus)
         self.rrf_k = int(rrf_k)
+        self.near_init_execs = None if near_init_execs is None else float(near_init_execs)
         self.pool: dict[str, list[float]] = {"coverage": [], "features": [], "exec_per_sec": []}
 
     def observe(self, scores: "FitnessScores") -> None:
@@ -135,6 +144,7 @@ class FitnessConfig:
 
     def state(self) -> dict:
         return {"mode": self.mode, "crash_bonus": self.crash_bonus, "rrf_k": self.rrf_k,
+                "near_init_execs_per_job": self.near_init_execs,
                 "n_observed": len(self.pool["coverage"]),
                 "max": {k: (max(v) if v else None) for k, v in self.pool.items()}}
 
@@ -142,10 +152,11 @@ class FitnessConfig:
 _CONFIG = FitnessConfig()
 
 
-def configure_fitness(mode: str, crash_bonus: float = CRASH_BONUS, rrf_k: int = 60) -> FitnessConfig:
+def configure_fitness(mode: str, crash_bonus: float = CRASH_BONUS, rrf_k: int = 60,
+                      near_init_execs: Optional[float] = NEAR_INIT_EXECS_PER_JOB) -> FitnessConfig:
     """Start a fresh normalisation pool for one run."""
     global _CONFIG
-    _CONFIG = FitnessConfig(mode, crash_bonus, rrf_k)
+    _CONFIG = FitnessConfig(mode, crash_bonus, rrf_k, near_init_execs)
     return _CONFIG
 
 
@@ -166,7 +177,8 @@ class FitnessScores:
     coverage: Optional[int]   = None      # libFuzzer 'cov:' value (edges covered)
     features: Optional[int]   = None      # libFuzzer 'ft:'  value (corpus features)
     exec_per_sec: Optional[float] = None  # libFuzzer 'exec/s:' (throughput)
-    stability: Optional[float]    = None  # 1.0 = finished normally, 0.5 = partial, 0.0 = hung
+    stability: Optional[float]    = None  # 1.0 = finished normally, 0.5 = partial, 0.0 = hung / near-init crash
+    execs_per_job: Optional[float] = None # fork mode: executed units / jobs (None for non-fork logs)
 
     # --- derived / boolean ---
     crash_found: bool   = False   # any crash or harness-failure event in the trial (informational)
@@ -180,6 +192,7 @@ class FitnessScores:
     library_crash: bool = False                         # sanitizer crash with a frame in the library
     crash_location: Optional[str] = None                # library | harness | other | unknown
     discard_reason: Optional[str] = None                # why a crash / trial earned no bonus
+    near_init_crash: bool = False                       # crashed on (almost) every input (fork mode)
 
     def total(self) -> float:
         """Scalar fitness used for selection and archiving."""
@@ -225,6 +238,19 @@ class FitnessScores:
         self.discard_reason = None if self.library_crash else {
             "harness": "crash_in_harness", "other": "crash_outside_library",
         }.get(location, "crash_location_unknown")
+        self.apply_near_init_rule()
+
+    def apply_near_init_rule(self) -> None:
+        """A trial that crashed and ran <= near_init_execs executions per fork job exercised a
+        harness that fails on (almost) any input: harness failure, no crash bonus, stability 0."""
+        limit = _CONFIG.near_init_execs
+        if limit is None or self.execs_per_job is None or not self.crash_events or self.execs_per_job > limit:
+            return
+        self.near_init_crash = True
+        self.library_crash = False
+        self.stability = 0.0
+        prior = self.discard_reason if (self.discard_reason or "").startswith("harness_failure:") else None
+        self.discard_reason = f"{prior},near_init_crash" if prior else "harness_failure:near_init_crash"
 
     def __repr__(self) -> str:
         exec_s = "None" if self.exec_per_sec is None else f"{self.exec_per_sec:.0f}"
@@ -292,6 +318,13 @@ def extract_coverage_from_log(log_path: Path, scope_root: Optional[str] = None,
         # use the last reported value (most representative)
         scores.exec_per_sec = float(exec_matches[-1])
 
+    # ---- fork-mode executions per job (last status line; #N = executed units of finished jobs) ----
+    fork_status = _FORK_STATUS_RE.findall(content)
+    if fork_status:
+        runs, jobs = (int(x) for x in fork_status[-1])
+        jobs = max(jobs, max(int(j) for _, j in fork_status))   # job ids can finish out of order
+        scores.execs_per_job = runs / jobs if jobs else None
+
     # ---- stability ----
     if "DONE" in content or "INFO: exiting:" in content:
         scores.stability = 1.0   # finished normally (non-fork DONE / fork-mode exit line)
@@ -308,6 +341,8 @@ def extract_coverage_from_log(log_path: Path, scope_root: Optional[str] = None,
         scores.discard_reason = "harness_failure:" + ",".join(failures)
     if "sanitizer" in scores.crash_events:
         scores.apply_crash_location(crash_location(content, scope_root, harness_path))
+    else:
+        scores.apply_near_init_rule()
 
     scores.compile_ok = True
     return scores

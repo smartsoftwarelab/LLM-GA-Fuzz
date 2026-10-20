@@ -103,6 +103,8 @@ class HarnessGenome:
                 "features":     self.fitness.features,
                 "exec_per_sec": self.fitness.exec_per_sec,
                 "stability":    self.fitness.stability,
+                "execs_per_job":   self.fitness.execs_per_job,
+                "near_init_crash": self.fitness.near_init_crash,
                 "crash_found":  self.fitness.crash_found,
                 "crash_events":   self.fitness.crash_events,
                 "library_crash":  self.fitness.library_crash,

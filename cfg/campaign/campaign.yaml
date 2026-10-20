@@ -49,6 +49,7 @@ fitness_normalization: "pool_max"
 crash_bonus: 0.60
 rrf_k: 60
 crash_repro_max: 3
+near_init_execs_per_job: 3      # PATCH 8: crashed + <= 3 execs per fork job = harness failure
 strategy_selection: "profile"
 strategy_priority_weight: 3.0
 

@@ -109,6 +109,9 @@ class BenchConfig:
         self.crash_bonus = float(self.config.get('crash_bonus', 0.60))   # lambda; 0 for the ablation
         self.rrf_k = int(self.config.get('rrf_k', 60))
         self.crash_repro_max = int(self.config.get('crash_repro_max', 3))  # crash inputs reproduced per trial
+        # crashed trials with <= this many executions per fork job are harness failures; null disables
+        near = self.config.get('near_init_execs_per_job', 3)
+        self.near_init_execs_per_job = None if near is None else float(near)
 
         # mutation strategy selection (agent/modules/variation.py: choose_strategy)
         self.strategy_selection = self.config.get('strategy_selection', "profile")   # profile | random (ablation)

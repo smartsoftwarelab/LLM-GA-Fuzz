@@ -150,7 +150,8 @@ class EvoISSTAFuzzer:
         if self.seed is not None:
             random.seed(self.seed)
         # fresh fitness-normalisation pool + crash-bonus lambda for this run
-        configure_fitness(benchcfg.fitness_normalization, benchcfg.crash_bonus, benchcfg.rrf_k)
+        configure_fitness(benchcfg.fitness_normalization, benchcfg.crash_bonus, benchcfg.rrf_k,
+                          benchcfg.near_init_execs_per_job)
         self.usage_log = activate(UsageLog(self.target_dir / "usage_log.jsonl", self.run_id, self.target_id))
         self.initial_attempts: list[dict] = []
         self.manifest: Optional[RunManifest] = None
@@ -249,6 +250,7 @@ class EvoISSTAFuzzer:
                           "strategy_priority_weight": cfg.strategy_priority_weight},
             "fitness": {"normalization": cfg.fitness_normalization, "crash_bonus_lambda": cfg.crash_bonus,
                         "rrf_k": cfg.rrf_k, "crash_repro_max": cfg.crash_repro_max,
+                        "near_init_execs_per_job": cfg.near_init_execs_per_job,
                         "W_COVERAGE": fitness_mod.W_COVERAGE, "W_FEATURES": fitness_mod.W_FEATURES,
                         "W_EXEC": fitness_mod.W_EXEC, "W_STABILITY": fitness_mod.W_STABILITY,
                         "CRASH_BONUS": fitness_mod.CRASH_BONUS, "NORM_COVERAGE": fitness_mod.NORM_COVERAGE,
