@@ -40,29 +40,32 @@ lines = ["# Campaign analysis", "", f"runs: {len(rows)} ({arm_counts})", ""]
 
 # ---- per target, per arm: gen0_best vs final_best -----------------------------------------
 per_target_rows, improvements = [], {}
-for arm in arms:
-    lines += [f"## Arm `{arm}`: final best vs. generation-0 best (branch coverage, %)", "",
+VARIANTS = [("final", "final best")]
+if any(r["nobonus_status"] for r in rows):
+    VARIANTS.append(("nobonus", "final best without crash bonus (post-hoc)"))
+for arm, (var, title) in [(a, v) for a in arms for v in VARIANTS]:
+    lines += [f"## Arm `{arm}`: {title} vs. generation-0 best (branch coverage, %)", "",
               "| target | runs | gen0 median [IQR] | final median [IQR] | improvement median | A12(final,gen0) | final>gen0 / = / < |",
               "|---|---|---|---|---|---|---|"]
-    improvements[arm] = {}
+    improvements[(arm, var)] = {}
     for project in sorted({r["project"] for r in rows if r["arm"] == arm}):
         rs = [r for r in rows if r["arm"] == arm and r["project"] == project
-              and r["gen0_status"] in MEASURED and r["final_status"] in MEASURED]
+              and r["gen0_status"] in MEASURED and r[f"{var}_status"] in MEASURED]
         g0 = [r["gen0_pct"] for r in rs]
-        fb = [r["final_pct"] for r in rs]
-        imp = [x for x in (rel_improvement(r["gen0_covered"], r["final_covered"]) for r in rs) if x is not None]
-        improvements[arm][project] = imp
+        fb = [r[f"{var}_pct"] for r in rs]
+        imp = [x for x in (rel_improvement(r["gen0_covered"], r[f"{var}_covered"]) for r in rs) if x is not None]
+        improvements[(arm, var)][project] = imp
         (gm, g1, g3), (fm, f1, f3), (im, _, _) = median_iqr(g0), median_iqr(fb), median_iqr(imp)
         eff = a12(fb, g0)
         signs = (sum(f > g for f, g in zip(fb, g0)), sum(f == g for f, g in zip(fb, g0)), sum(f < g for f, g in zip(fb, g0)))
         fmt = lambda v: "-" if v is None else f"{v:.2f}"  # noqa: E731
         lines.append(f"| {project} | {len(rs)} | {fmt(gm)} [{fmt(g1)}, {fmt(g3)}] | {fmt(fm)} [{fmt(f1)}, {fmt(f3)}] | "
                      f"{'-' if im is None else f'{im * 100:+.1f}%'} | {fmt(eff)} | {signs[0]}/{signs[1]}/{signs[2]} |")
-        per_target_rows.append({"arm": arm, "target": project, "runs": len(rs), "gen0_median": gm, "final_median": fm,
+        per_target_rows.append({"arm": arm, "variant": var, "target": project, "runs": len(rs), "gen0_median": gm, "final_median": fm,
                                 "improvement_median": im, "a12_final_vs_gen0": eff,
                                 "final_gt": signs[0], "eq": signs[1], "final_lt": signs[2]})
-    point, lo, hi = hier_bootstrap_median(improvements[arm])
-    unmeasured = sum(1 for r in rows if r["arm"] == arm and not (r["gen0_status"] in MEASURED and r["final_status"] in MEASURED))
+    point, lo, hi = hier_bootstrap_median(improvements[(arm, var)])
+    unmeasured = sum(1 for r in rows if r["arm"] == arm and not (r["gen0_status"] in MEASURED and r[f"{var}_status"] in MEASURED))
     lines += ["", f"Campaign improvement (median of target medians): "
               + ("-" if point is None else f"{point * 100:+.1f}% (95% hierarchical bootstrap CI {lo * 100:+.1f}% .. {hi * 100:+.1f}%)"),
               f"Runs excluded because a coverage measurement failed (status not OK/NO_COVERAGE): {unmeasured}", ""]
@@ -126,11 +129,14 @@ if None not in (args.price_input, args.price_cached, args.price_output):
         lines.append(f"\nLLM cost `{arm}`: ${usd:.2f} total, ${usd / len(rs):.3f} per run (prices given on the command line)")
 lines += ["", "## Crashes and strategy rules (sums over runs)", "",
           "| arm | runs w/ library crash | library-crash genomes | harness-failure genomes | bonus changed top genome (runs) | "
-          "rule low_stability / path_plateau / uniform / random | usage missing |", "|---|---|---|---|---|---|---|"]
+          "final best has library crash (runs) | final best == recomputed top (runs) | "
+          "rule low_stability / path_plateau / uniform / random | usage missing |", "|---|---|---|---|---|---|---|---|---|"]
 for arm in arms:
     rs = [r for r in rows if r["arm"] == arm]
     lines.append(f"| {arm} | {sum(1 for r in rs if r['library_crash_genomes'])} | {sum(r['library_crash_genomes'] for r in rs)} | "
                  f"{sum(r['harness_failure_genomes'] for r in rs)} | {sum(1 for r in rs if r['bonus_changed_top'])} | "
+                 f"{sum(1 for r in rs if r['final_has_library_crash'])} | "
+                 f"{sum(1 for r in rs if r['final_matches_recomputed_top'])}/{len(rs)} | "
                  f"{sum(r['rule_low_stability'] for r in rs)} / {sum(r['rule_path_plateau'] for r in rs)} / "
                  f"{sum(r['rule_uniform'] for r in rs)} / {sum(r['rule_random'] for r in rs)} | {sum(r['usage_missing'] for r in rs)} |")
 
