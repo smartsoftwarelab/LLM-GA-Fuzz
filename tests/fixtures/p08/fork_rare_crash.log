@@ -1,0 +1,6 @@
+INFO: -fork=1: fuzzing in separate process(s)
+#120: cov: 300 ft: 500 corp: 40 exec/s: 900 oom/timeout/crash: 0/0/0 time: 10s job: 10 dft_time: 0
+==77==ERROR: AddressSanitizer: heap-buffer-overflow on address 0x5020000004b5 at pc 0x5644d77b9cd7 bp 0x7fffe9be79d0 sp 0x7fffe9be79c8
+#900: cov: 350 ft: 620 corp: 55 exec/s: 950 oom/timeout/crash: 0/0/1 time: 60s job: 40 dft_time: 0
+INFO: fuzzed for 60 seconds, wrapping up soon
+INFO: exiting: 1 time: 60s

@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from agent.eval import process_single_result  # noqa: E402
 from bench_cfg import BenchConfig  # noqa: E402
-from utils.campaign import pick_best_without_bonus, pick_final_best, pick_gen0_best  # noqa: E402
+from utils.campaign import cleanup_run_workspace, pick_best_without_bonus, pick_final_best, pick_gen0_best  # noqa: E402
 
 ap = argparse.ArgumentParser()
 ap.add_argument("target_dir")
@@ -55,6 +55,8 @@ for label in args.labels.split(","):
     cfg.save_root = target_dir / "eval" / label
     cfg.run_time = args.minutes
     _, _, record = process_single_result((manifest["project"], manifest["function"], work, cfg))
+    if record.get("eval_dir"):    # the evaluation's image and build dirs are never reused (disk)
+        record["cleaned"] = cleanup_run_workspace(cfg.oss_fuzz_dir, Path(record["eval_dir"]).name)
     results[label] = {"genome_id": genome["genome_id"], "generation": genome["generation"],
                       "fitness_total": genome["fitness"]["total"], **record}
     first_by_genome[genome["genome_id"]] = label

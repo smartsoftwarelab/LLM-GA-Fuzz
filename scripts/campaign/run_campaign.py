@@ -2,7 +2,9 @@
 
 Order is target-major (all repetitions of a target before the next target), so if time runs
 out the campaign loses targets, never repetitions. Resumable: completed runs are skipped.
-Create <out>/STOP to stop cleanly after the current run.
+Create <out>/STOP to stop cleanly after the current run. The launcher also stops before a run when
+free disk is below --min-free-gb and after --max-consecutive-aborts runs in a row did not complete
+(a full disk once made docker builds fail and aborted every remaining run within minutes).
 
 Usage: setsid nohup python scripts/campaign/run_campaign.py > outputs/campaign_launcher.log 2>&1 < /dev/null &
 Keep logs under outputs/ (git-ignored) so the code tree stays clean (gate G7).
@@ -20,7 +22,8 @@ from pathlib import Path
 import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
-from utils.campaign import LANG_LABEL, find_target_dir, manifest_status, rep_seed, run_key  # noqa: E402
+from utils.campaign import (LANG_LABEL, find_target_dir, first_initial_error, free_gb,  # noqa: E402
+                            manifest_status, rep_seed, run_key)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("--targets", default="campaign/targets_selected.json")
@@ -32,6 +35,8 @@ ap.add_argument("--only", default=None, help="comma-separated projects (ablation
 ap.add_argument("--reps", type=int, default=5)
 ap.add_argument("--campaign-seed", type=int, default=20261016)
 ap.add_argument("--eval-minutes", type=int, default=5)
+ap.add_argument("--min-free-gb", type=float, default=10.0)
+ap.add_argument("--max-consecutive-aborts", type=int, default=3)
 ap.add_argument("--dry-run", action="store_true")
 args = ap.parse_args()
 
@@ -46,6 +51,8 @@ if args.only:
     assert len(targets) == len(keep), f"unknown project in --only: {keep - {t['project'] for t in targets}}"
 template = yaml.safe_load(Path(args.template).read_text())
 progress = out / "progress.jsonl"
+disk_paths = [out, template["oss_fuzz_dir"], "/var/lib/docker"]
+consecutive_aborts = 0
 
 
 def log_progress(**rec):
@@ -58,6 +65,10 @@ for t in targets:
     for r in range(1, args.reps + 1):
         if (out / "STOP").exists():
             print("STOP file found, exiting"); sys.exit(0)
+        gb = free_gb(disk_paths)
+        if gb is not None and gb < args.min_free_gb and not args.dry_run:
+            log_progress(run=run_key(t["project"], r), phase="stopped", reason=f"free disk {gb:.1f} GB < {args.min_free_gb}")
+            print(f"free disk {gb:.1f} GB < {args.min_free_gb} GB, exiting"); sys.exit(2)
         key = run_key(t["project"], r)
         save_root = out / f"rep{r}"
         target_dir = find_target_dir(save_root, t["project"])
@@ -91,8 +102,13 @@ for t in targets:
                              "--project", t["project"], "--function", t["signature"]],
                             stdout=lf, stderr=sp.STDOUT, stdin=sp.DEVNULL, env=env).returncode
             target_dir = find_target_dir(save_root, t["project"])
-            log_progress(run=key, phase="evolution", rc=rc, status=manifest_status(target_dir),
-                         seconds=round(time.time() - t0))
+            status = manifest_status(target_dir)
+            log_progress(run=key, phase="evolution", rc=rc, status=status, seconds=round(time.time() - t0),
+                         error=None if status == "completed" else first_initial_error(target_dir))
+            consecutive_aborts = 0 if status == "completed" else consecutive_aborts + 1
+            if consecutive_aborts >= args.max_consecutive_aborts:
+                log_progress(run=key, phase="stopped", reason=f"{consecutive_aborts} consecutive runs did not complete")
+                print(f"{consecutive_aborts} consecutive runs did not complete, exiting"); sys.exit(3)
         if manifest_status(target_dir) == "completed":
             t1 = time.time()
             with (out / "logs" / f"{key}.eval.log").open("a") as lf:

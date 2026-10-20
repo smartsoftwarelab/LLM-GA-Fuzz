@@ -8,6 +8,8 @@ import hashlib
 import json
 import random
 import re
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any, Optional
 
@@ -15,6 +17,8 @@ import yaml
 
 LANG_LABEL = {"c": "C", "c++": "CPP"}           # benchmark YAML label -> BenchConfig.language
 SECRET_RE = re.compile(r"sk-(?:proj|svcacct|admin)-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{32,}")
+# per-run OSS-Fuzz project copies made by FuzzENV: run<n>_<16 lowercase letters>
+RUN_PROJECT_RE = re.compile(r"^run\d+_[a-z]{16}$")
 
 
 def load_benchmark(bench_dir: Path) -> list[dict[str, Any]]:
@@ -72,6 +76,46 @@ def manifest_status(target_dir: Optional[Path]) -> Optional[str]:
         return json.loads((target_dir / "run_manifest.json").read_text())["status"]
     except (OSError, KeyError, json.JSONDecodeError):
         return None
+
+
+def first_initial_error(target_dir: Optional[Path]) -> Optional[str]:
+    """First recorded initial-generation error of a run (why a run aborted)."""
+    if target_dir is None:
+        return None
+    try:
+        attempts = json.loads((target_dir / "run_manifest.json").read_text()).get("initial_attempts") or []
+    except (OSError, json.JSONDecodeError):
+        return None
+    return next((a["error"][:300] for a in attempts if a.get("error")), None)
+
+
+def free_gb(paths: list) -> Optional[float]:
+    """Smallest free space (GB) over the existing paths (output dir, oss-fuzz, docker root)."""
+    free = [shutil.disk_usage(p).free / 1e9 for p in map(Path, paths) if p.exists()]
+    return min(free) if free else None
+
+
+def cleanup_run_workspace(oss_fuzz_dir: Path, new_project_name: str, remove_image: bool = True) -> list[str]:
+    """Remove the per-run OSS-Fuzz copy of a project: docker image gcr.io/oss-fuzz/<name> and
+    projects/, build/out/, build/work/ <name>. Results (corpus, logs, coverage) live elsewhere.
+    Refuses any name that is not a FuzzENV run name, so real projects are never touched."""
+    if not RUN_PROJECT_RE.match(new_project_name):
+        raise ValueError(f"refusing to clean non-run project {new_project_name!r}")
+    removed = []
+    if remove_image:
+        try:
+            res = subprocess.run(["docker", "rmi", "-f", f"gcr.io/oss-fuzz/{new_project_name}"],
+                                 capture_output=True, text=True, timeout=300)
+            if res.returncode == 0:
+                removed.append(f"image gcr.io/oss-fuzz/{new_project_name}")
+        except (OSError, subprocess.SubprocessError):
+            pass
+    for sub in ("projects", "build/out", "build/work"):
+        d = Path(oss_fuzz_dir) / sub / new_project_name
+        if d.exists():
+            shutil.rmtree(d, ignore_errors=True)
+            removed.append(str(d))
+    return removed
 
 
 def pick_gen0_best(target_dir: Path) -> Optional[dict]:

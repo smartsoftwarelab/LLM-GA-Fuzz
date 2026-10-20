@@ -1,0 +1,6 @@
+#4483: cov: 196 ft: 291 corp: 8 exec/s: 0 oom/timeout/crash: 0/0/4482 time: 299s job: 4483 dft_time: 0
+==18018==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x7f88563de720 bp 0x7fffdabdbca0 sp 0x7fffdabdb468 T0)
+#4487: cov: 196 ft: 291 corp: 8 exec/s: 0 oom/timeout/crash: 0/0/4486 time: 300s job: 4487 dft_time: 0
+==18034==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000 (pc 0x7f9e49719720 bp 0x7ffef60364c0 sp 0x7ffef6035c88 T0)
+INFO: fuzzed for 300 seconds, wrapping up soon
+INFO: exiting: 1 time: 300s
