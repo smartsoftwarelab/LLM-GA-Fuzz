@@ -19,6 +19,7 @@ from utils.campaign import count_http_posts, files_with_secrets  # noqa: E402
 ap = argparse.ArgumentParser()
 ap.add_argument("--out", default="outputs/campaign")
 ap.add_argument("--reference", default="campaign/preflight_reference.txt")
+ap.add_argument("--final", action="store_true", help="treat runs still marked running as aborted")
 args = ap.parse_args()
 out = Path(args.out)
 
@@ -28,11 +29,14 @@ gates.append(("G1 coverage == hand-derived reference", "PASS  A branches == 4/6"
 gates.append(("G2 three identical measurements", "PASS  A determinism" in ref, args.reference))
 
 manifests = sorted(out.glob("rep*/*/*/run_manifest.json"))
-commits, images, lost, aborted, g3_bad, g4_bad = set(), set(), [], [], [], []
+commits, images, lost, aborted, g3_bad, g4_bad, running = set(), set(), [], [], [], [], []
 for mp in manifests:
     m = json.loads(mp.read_text())
     d = mp.parent
     key = f"{m['project']}_rep{m['repetition_index']}"
+    if m["status"] == "running" and not args.final:
+        running.append(key)          # in progress: no end-of-run fields yet, checked once finished
+        continue
     commits.add((m["code"].get("commit"), m["code"].get("dirty")))
     images.add(json.dumps({k: v.get("id") for k, v in m.get("docker_images_end", {}).items()}, sort_keys=True))
     if m["status"] != "completed":
@@ -63,5 +67,5 @@ if lost:
     print("lost initial attempts (recorded, not fatal):")
     for x in lost:
         print("  " + x)
-print(f"runs checked: {len(manifests)}")
+print(f"runs checked: {len(manifests) - len(running)}  in progress (skipped): {running or 'none'}")
 print("OVERALL:", "PASS" if all(ok for _, ok, _ in gates) else "FAIL")
