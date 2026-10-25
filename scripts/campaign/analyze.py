@@ -34,7 +34,7 @@ with (report / "runs.csv").open("w", newline="") as f:
     w.writeheader()
     w.writerows(rows)
 
-MEASURED = ("OK", "NO_COVERAGE")
+MEASURED = ("OK", "NO_COVERAGE", "CRASHED_EMPTY")   # CRASHED_EMPTY = crashed, no corpus kept: 0 covered
 arm_counts = ", ".join(f"{a}: {sum(1 for r in rows if r['arm'] == a)}" for a in arms)
 lines = ["# Campaign analysis", "", f"runs: {len(rows)} ({arm_counts})", ""]
 
@@ -68,7 +68,9 @@ for arm, (var, title) in [(a, v) for a in arms for v in VARIANTS]:
     unmeasured = sum(1 for r in rows if r["arm"] == arm and not (r["gen0_status"] in MEASURED and r[f"{var}_status"] in MEASURED))
     lines += ["", f"Campaign improvement (median of target medians): "
               + ("-" if point is None else f"{point * 100:+.1f}% (95% hierarchical bootstrap CI {lo * 100:+.1f}% .. {hi * 100:+.1f}%)"),
-              f"Runs excluded because a coverage measurement failed (status not OK/NO_COVERAGE): {unmeasured}", ""]
+              f"Runs excluded because a coverage measurement failed (status not OK/NO_COVERAGE/CRASHED_EMPTY): {unmeasured}",
+              f"Runs where a harness crashed and kept no corpus input (counted as 0 covered): "
+              f"{sum(1 for r in rows if r['arm'] == arm and 'CRASHED_EMPTY' in (r['gen0_status'], r[f'{var}_status']))}", ""]
 
 with (report / "per_target.csv").open("w", newline="") as f:
     w = csv.DictWriter(f, fieldnames=list(per_target_rows[0]))
