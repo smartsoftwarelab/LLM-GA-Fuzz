@@ -1,7 +1,7 @@
 """PATCH 7: analysis statistics."""
 import pytest
 
-from utils.analysis import a12, hier_bootstrap_median, median_iqr, recompute_totals, rel_improvement
+from utils.analysis import a12, coverage_or_zero, hier_bootstrap_median, median_iqr, recompute_totals, rel_improvement
 
 
 def test_a12_definition():
@@ -53,3 +53,15 @@ def test_recompute_ignores_uncompiled_and_unmeasured():
     gs = {"a": _g(10, 1, 1, False), "b": _g(None, None, None, False, status="NO_STATS"), "c": _g(99, 9, 9, False, ok=False)}
     t = recompute_totals(gs, CFG)
     assert set(t) == {"a", "b"} and t["b"] == (0.0, 0.0)
+
+
+def test_crashed_empty_corpus_counts_as_zero_not_excluded():
+    """PATCH 9: coturn rep4 (pilot) final_best crashed on every input and kept no corpus."""
+    g0 = {"fuzz_result": "NoError", "coverage": {"status": "OK", "covered": 139, "total": 1932, "percent": 7.19}}
+    crashed = {"fuzz_result": "Crash", "coverage": {"status": "EMPTY_CORPUS", "covered": None, "total": None}}
+    c = coverage_or_zero(crashed, g0)
+    assert (c["status"], c["covered"], c["total"], c["percent"]) == ("CRASHED_EMPTY", 0, 1932, 0.0)
+    infra = {"fuzz_result": "RunError", "coverage": {"status": "EMPTY_CORPUS", "covered": None, "total": None}}
+    assert coverage_or_zero(infra, g0)["status"] == "EMPTY_CORPUS"          # not a result: stays excluded
+    assert coverage_or_zero(g0, crashed) == g0["coverage"]
+    assert coverage_or_zero(None, g0) == {}

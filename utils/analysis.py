@@ -92,6 +92,17 @@ def _cov(rec: dict) -> dict:
     return (rec or {}).get("coverage") or {}
 
 
+def coverage_or_zero(rec: Optional[dict], other: Optional[dict]) -> dict:
+    """Coverage of one evaluated harness. A harness that crashed during the evaluation fuzz and kept
+    no corpus input is a result (0 covered, status CRASHED_EMPTY), not a failed measurement;
+    its total comes from the other harness of the same run."""
+    c = dict(_cov(rec))
+    if c.get("status") == "EMPTY_CORPUS" and (rec or {}).get("fuzz_result") == "Crash":
+        total = c.get("total") or _cov(other).get("total")
+        c.update(status="CRASHED_EMPTY", covered=0, total=total, percent=0.0 if total else None)
+    return c
+
+
 def load_runs(out_dir: Path, arm: str) -> list[dict[str, Any]]:
     """One row per completed run with evaluation, usage, timing and crash statistics."""
     rows = []
@@ -102,7 +113,8 @@ def load_runs(out_dir: Path, arm: str) -> list[dict[str, Any]]:
         if m.get("status") != "completed" or not ev_path.exists():
             continue
         ev = json.loads(ev_path.read_text())["results"]
-        g0, fb, nb = _cov(ev.get("gen0_best")), _cov(ev.get("final_best")), _cov(ev.get("final_best_nobonus"))
+        g0r, fbr, nbr = ev.get("gen0_best"), ev.get("final_best"), ev.get("final_best_nobonus")
+        g0, fb, nb = coverage_or_zero(g0r, fbr), coverage_or_zero(fbr, g0r), coverage_or_zero(nbr, g0r)
         usage = [json.loads(x) for x in (d / "usage_log.jsonl").read_text().splitlines()] if (d / "usage_log.jsonl").exists() else []
         genomes = last_genome_states(d)
         totals = recompute_totals(genomes, m.get("fitness", {}))

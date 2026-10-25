@@ -29,7 +29,7 @@ gates.append(("G1 coverage == hand-derived reference", "PASS  A branches == 4/6"
 gates.append(("G2 three identical measurements", "PASS  A determinism" in ref, args.reference))
 
 manifests = sorted(out.glob("rep*/*/*/run_manifest.json"))
-commits, images, lost, aborted, g3_bad, g4_bad, running = set(), set(), [], [], [], [], []
+commits, images, lost, aborted, g3_bad, g4_bad, running, no_ids = set(), set(), [], [], [], [], [], []
 for mp in manifests:
     m = json.loads(mp.read_text())
     d = mp.parent
@@ -38,7 +38,10 @@ for mp in manifests:
         running.append(key)          # in progress: no end-of-run fields yet, checked once finished
         continue
     commits.add((m["code"].get("commit"), m["code"].get("dirty")))
-    images.add(json.dumps({k: v.get("id") for k, v in m.get("docker_images_end", {}).items()}, sort_keys=True))
+    ids = {k: v.get("id") for k, v in m.get("docker_images_end", {}).items()}
+    images.add(json.dumps(ids, sort_keys=True))
+    if not ids or None in ids.values():          # an unrecorded image id must not pass as "one id"
+        no_ids.append(key)
     if m["status"] != "completed":
         aborted.append(f"{key}:{m['status']}")
     for a in m.get("initial_attempts", []):
@@ -59,7 +62,8 @@ secrets = files_with_secrets(out)
 gates.append(("G5 no API key in outputs", not secrets, "; ".join(secrets[:5])))
 gates.append(("G6 no aborted run", not aborted, "; ".join(aborted)))
 gates.append(("G7 single clean code commit", len(commits) == 1 and not next(iter(commits))[1] if commits else False, str(commits)))
-gates.append(("G8 single base-image id", len(images) == 1, f"{len(images)} distinct"))
+gates.append(("G8 single base-image id", len(images) == 1 and not no_ids,
+              f"{len(images)} distinct; id not recorded: {no_ids or 'none'}"))
 
 for name, ok, detail in gates:
     print(f"{'PASS' if ok else 'FAIL'}  {name}  [{detail}]")
