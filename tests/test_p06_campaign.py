@@ -3,7 +3,7 @@ import json
 from pathlib import Path
 
 from utils.campaign import (count_http_posts, files_with_secrets, load_benchmark, pick_final_best,
-                            pick_gen0_best, rep_seed, stratified_order)
+                            pick_gen0_best, rep_seed, run_fuzzer_info, stratified_order)
 
 BENCH = Path(__file__).resolve().parent.parent / "benchmark-sets" / "function_0"
 
@@ -53,3 +53,13 @@ def test_http_posts_and_secret_scan(tmp_path):
     assert files_with_secrets(tmp_path) == []
     (tmp_path / "leak.txt").write_text("key=" + "sk-" + "proj-" + "A" * 40)
     assert files_with_secrets(tmp_path) == [str(tmp_path / "leak.txt")]
+
+
+def test_run_fuzzer_info_falls_back_to_benchmark_target(tmp_path):
+    """PATCH 10: v2 coturn rep2 had no validated initial harness, so no fuzzer_info.json."""
+    info, src = run_fuzzer_info(tmp_path, BENCH, "coturn")
+    assert src == "benchmark_yaml" and info == {"fuzzer_name": "FuzzStun", "fuzzer_path": "/src/coturn/fuzzing/FuzzStun.c"}
+    (tmp_path / "run1_abcdefghijklmnop").mkdir()
+    (tmp_path / "run1_abcdefghijklmnop" / "fuzzer_info.json").write_text(json.dumps({"fuzzer_name": "x", "fuzzer_path": "/src/y.c"}))
+    assert run_fuzzer_info(tmp_path, BENCH, "coturn") == ({"fuzzer_name": "x", "fuzzer_path": "/src/y.c"}, "validated_initial_harness")
+    assert run_fuzzer_info(tmp_path / "none", BENCH, "no_such_project") == (None, "missing")

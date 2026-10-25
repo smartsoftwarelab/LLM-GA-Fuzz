@@ -118,6 +118,22 @@ def cleanup_run_workspace(oss_fuzz_dir: Path, new_project_name: str, remove_imag
     return removed
 
 
+def run_fuzzer_info(target_dir: Path, bench_dir: Path, project: str) -> tuple[Optional[dict], str]:
+    """Fuzz target for evaluating a run's harnesses: the one an initial harness was validated with,
+    else the benchmark target (target_name / target_path), which evolution compiles every genome
+    into (evo_gen.py: first harness pair = benchmark target)."""
+    hit = next(iter(sorted(Path(target_dir).glob("run[0-9]*_*/fuzzer_info.json"))), None)
+    if hit is not None:
+        return json.loads(hit.read_text()), "validated_initial_harness"
+    bench = Path(bench_dir) / f"{project}.yaml"
+    if not bench.exists():
+        return None, "missing"
+    data = yaml.safe_load(bench.read_text())
+    if not data.get("target_name") or not data.get("target_path"):
+        return None, "missing"
+    return {"fuzzer_name": data["target_name"], "fuzzer_path": data["target_path"]}, "benchmark_yaml"
+
+
 def pick_gen0_best(target_dir: Path) -> Optional[dict]:
     """Best compiled generation-0 genome by its recorded in-loop fitness (the non-evolutionary baseline)."""
     genomes = [json.loads(p.read_text(encoding="utf-8")) for p in sorted((target_dir / "evolution" / "gen_000").glob("*.json"))]
