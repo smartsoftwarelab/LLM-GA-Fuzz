@@ -1,0 +1,98 @@
+diff --git a/scripts/campaign/eval_run.py b/scripts/campaign/eval_run.py
+index 526846d..38e04f4 100644
+--- a/scripts/campaign/eval_run.py
++++ b/scripts/campaign/eval_run.py
+@@ -14,7 +14,8 @@ from pathlib import Path
+ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+ from agent.eval import process_single_result  # noqa: E402
+ from bench_cfg import BenchConfig  # noqa: E402
+-from utils.campaign import cleanup_run_workspace, pick_best_without_bonus, pick_final_best, pick_gen0_best  # noqa: E402
++from utils.campaign import (cleanup_run_workspace, pick_best_without_bonus, pick_final_best,  # noqa: E402
++                            pick_gen0_best, run_fuzzer_info)
+ 
+ ap = argparse.ArgumentParser()
+ ap.add_argument("target_dir")
+@@ -25,9 +26,9 @@ args = ap.parse_args()
+ 
+ target_dir = Path(args.target_dir).resolve()
+ manifest = json.loads((target_dir / "run_manifest.json").read_text())
+-fuzzer_info = next(iter(sorted(target_dir.glob("run[0-9]*_*/fuzzer_info.json"))), None)
++fuzzer_info, fuzzer_info_source = run_fuzzer_info(target_dir, BenchConfig(args.cfg).benchmark_dir, manifest["project"])
+ if manifest.get("status") != "completed" or fuzzer_info is None:
+-    sys.exit(f"cannot evaluate {target_dir}: status={manifest.get('status')} fuzzer_info={fuzzer_info}")
++    sys.exit(f"cannot evaluate {target_dir}: status={manifest.get('status')} fuzzer_info={fuzzer_info_source}")
+ 
+ out = target_dir / "eval" / "eval_results.json"
+ previous = json.loads(out.read_text()) if out.exists() else {}
+@@ -50,7 +51,7 @@ for label in args.labels.split(","):
+     work.mkdir(parents=True, exist_ok=True)
+     (work / "harness.txt").write_text(genome["code"], encoding="utf-8")
+     (work / "function.txt").write_text(manifest["function"], encoding="utf-8")
+-    (work / "fuzzer_info.json").write_text(fuzzer_info.read_text())
++    (work / "fuzzer_info.json").write_text(json.dumps(fuzzer_info))
+     cfg = BenchConfig(args.cfg)
+     cfg.save_root = target_dir / "eval" / label
+     cfg.run_time = args.minutes
+@@ -58,7 +59,7 @@ for label in args.labels.split(","):
+     if record.get("eval_dir"):    # the evaluation's image and build dirs are never reused (disk)
+         record["cleaned"] = cleanup_run_workspace(cfg.oss_fuzz_dir, Path(record["eval_dir"]).name)
+     results[label] = {"genome_id": genome["genome_id"], "generation": genome["generation"],
+-                      "fitness_total": genome["fitness"]["total"], **record}
++                      "fitness_total": genome["fitness"]["total"], "fuzzer_info_source": fuzzer_info_source, **record}
+     first_by_genome[genome["genome_id"]] = label
+ 
+ out.parent.mkdir(parents=True, exist_ok=True)
+diff --git a/tests/test_p06_campaign.py b/tests/test_p06_campaign.py
+index 5794627..4cc4135 100644
+--- a/tests/test_p06_campaign.py
++++ b/tests/test_p06_campaign.py
+@@ -3,7 +3,7 @@ import json
+ from pathlib import Path
+ 
+ from utils.campaign import (count_http_posts, files_with_secrets, load_benchmark, pick_final_best,
+-                            pick_gen0_best, rep_seed, stratified_order)
++                            pick_gen0_best, rep_seed, run_fuzzer_info, stratified_order)
+ 
+ BENCH = Path(__file__).resolve().parent.parent / "benchmark-sets" / "function_0"
+ 
+@@ -53,3 +53,13 @@ def test_http_posts_and_secret_scan(tmp_path):
+     assert files_with_secrets(tmp_path) == []
+     (tmp_path / "leak.txt").write_text("key=" + "sk-" + "proj-" + "A" * 40)
+     assert files_with_secrets(tmp_path) == [str(tmp_path / "leak.txt")]
++
++
++def test_run_fuzzer_info_falls_back_to_benchmark_target(tmp_path):
++    """PATCH 10: v2 coturn rep2 had no validated initial harness, so no fuzzer_info.json."""
++    info, src = run_fuzzer_info(tmp_path, BENCH, "coturn")
++    assert src == "benchmark_yaml" and info == {"fuzzer_name": "FuzzStun", "fuzzer_path": "/src/coturn/fuzzing/FuzzStun.c"}
++    (tmp_path / "run1_abcdefghijklmnop").mkdir()
++    (tmp_path / "run1_abcdefghijklmnop" / "fuzzer_info.json").write_text(json.dumps({"fuzzer_name": "x", "fuzzer_path": "/src/y.c"}))
++    assert run_fuzzer_info(tmp_path, BENCH, "coturn") == ({"fuzzer_name": "x", "fuzzer_path": "/src/y.c"}, "validated_initial_harness")
++    assert run_fuzzer_info(tmp_path / "none", BENCH, "no_such_project") == (None, "missing")
+diff --git a/utils/campaign.py b/utils/campaign.py
+index 5998a43..028582c 100644
+--- a/utils/campaign.py
++++ b/utils/campaign.py
+@@ -118,6 +118,22 @@ def cleanup_run_workspace(oss_fuzz_dir: Path, new_project_name: str, remove_imag
+     return removed
+ 
+ 
++def run_fuzzer_info(target_dir: Path, bench_dir: Path, project: str) -> tuple[Optional[dict], str]:
++    """Fuzz target for evaluating a run's harnesses: the one an initial harness was validated with,
++    else the benchmark target (target_name / target_path), which evolution compiles every genome
++    into (evo_gen.py: first harness pair = benchmark target)."""
++    hit = next(iter(sorted(Path(target_dir).glob("run[0-9]*_*/fuzzer_info.json"))), None)
++    if hit is not None:
++        return json.loads(hit.read_text()), "validated_initial_harness"
++    bench = Path(bench_dir) / f"{project}.yaml"
++    if not bench.exists():
++        return None, "missing"
++    data = yaml.safe_load(bench.read_text())
++    if not data.get("target_name") or not data.get("target_path"):
++        return None, "missing"
++    return {"fuzzer_name": data["target_name"], "fuzzer_path": data["target_path"]}, "benchmark_yaml"
++
++
+ def pick_gen0_best(target_dir: Path) -> Optional[dict]:
+     """Best compiled generation-0 genome by its recorded in-loop fitness (the non-evolutionary baseline)."""
+     genomes = [json.loads(p.read_text(encoding="utf-8")) for p in sorted((target_dir / "evolution" / "gen_000").glob("*.json"))]

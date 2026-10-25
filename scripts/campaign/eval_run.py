@@ -14,7 +14,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from agent.eval import process_single_result  # noqa: E402
 from bench_cfg import BenchConfig  # noqa: E402
-from utils.campaign import cleanup_run_workspace, pick_best_without_bonus, pick_final_best, pick_gen0_best  # noqa: E402
+from utils.campaign import (cleanup_run_workspace, pick_best_without_bonus, pick_final_best,  # noqa: E402
+                            pick_gen0_best, run_fuzzer_info)
 
 ap = argparse.ArgumentParser()
 ap.add_argument("target_dir")
@@ -25,9 +26,9 @@ args = ap.parse_args()
 
 target_dir = Path(args.target_dir).resolve()
 manifest = json.loads((target_dir / "run_manifest.json").read_text())
-fuzzer_info = next(iter(sorted(target_dir.glob("run[0-9]*_*/fuzzer_info.json"))), None)
+fuzzer_info, fuzzer_info_source = run_fuzzer_info(target_dir, BenchConfig(args.cfg).benchmark_dir, manifest["project"])
 if manifest.get("status") != "completed" or fuzzer_info is None:
-    sys.exit(f"cannot evaluate {target_dir}: status={manifest.get('status')} fuzzer_info={fuzzer_info}")
+    sys.exit(f"cannot evaluate {target_dir}: status={manifest.get('status')} fuzzer_info={fuzzer_info_source}")
 
 out = target_dir / "eval" / "eval_results.json"
 previous = json.loads(out.read_text()) if out.exists() else {}
@@ -50,7 +51,7 @@ for label in args.labels.split(","):
     work.mkdir(parents=True, exist_ok=True)
     (work / "harness.txt").write_text(genome["code"], encoding="utf-8")
     (work / "function.txt").write_text(manifest["function"], encoding="utf-8")
-    (work / "fuzzer_info.json").write_text(fuzzer_info.read_text())
+    (work / "fuzzer_info.json").write_text(json.dumps(fuzzer_info))
     cfg = BenchConfig(args.cfg)
     cfg.save_root = target_dir / "eval" / label
     cfg.run_time = args.minutes
@@ -58,7 +59,7 @@ for label in args.labels.split(","):
     if record.get("eval_dir"):    # the evaluation's image and build dirs are never reused (disk)
         record["cleaned"] = cleanup_run_workspace(cfg.oss_fuzz_dir, Path(record["eval_dir"]).name)
     results[label] = {"genome_id": genome["genome_id"], "generation": genome["generation"],
-                      "fitness_total": genome["fitness"]["total"], **record}
+                      "fitness_total": genome["fitness"]["total"], "fuzzer_info_source": fuzzer_info_source, **record}
     first_by_genome[genome["genome_id"]] = label
 
 out.parent.mkdir(parents=True, exist_ok=True)
