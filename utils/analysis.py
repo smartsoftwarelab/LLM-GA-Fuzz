@@ -1,12 +1,15 @@
 """Statistics for the campaign analysis (numpy only; the mixed model lives in the script).
 
 Definitions used in every table of the paper:
-- coverage   : llvm-cov branch coverage of the target library, covered / total (percent).
+- coverage   : llvm-cov branch coverage of the target library: covered branches. Each harness is its own
+               binary and links a different part of the library, so `total` (and the percentage)
+               differs between harnesses of one run; all comparisons use covered branches.
 - improvement: per run, r = (final_best - gen0_best) / gen0_best on covered branches; a target's
                improvement is the median r over its repetitions; the campaign improvement is the
                median of target medians, with a hierarchical bootstrap CI (targets, then runs).
 - effect size: Vargha-Delaney A12(final, gen0) per target over repetitions: probability that a
                random final-best run covers more branches than a random gen0-best run (ties 0.5).
+- ablation   : A12 of the per-run improvement r between arms (each arm generates its own gen-0).
 """
 from __future__ import annotations
 
@@ -133,7 +136,8 @@ def load_runs(out_dir: Path, arm: str) -> list[dict[str, Any]]:
             "final_pct": fb.get("percent"),
             "final_is_gen0": bool(ev.get("final_best", {}).get("reused_from")),
             "no_compiled_initial_harness": (ev.get("gen0_best") or {}).get("genome_id") is None,
-            "nobonus_status": nb.get("status"), "nobonus_covered": nb.get("covered"), "nobonus_pct": nb.get("percent"),
+            "nobonus_status": nb.get("status"), "nobonus_covered": nb.get("covered"), "nobonus_total": nb.get("total"),
+            "nobonus_pct": nb.get("percent"),
             "final_matches_recomputed_top": None if final_id is None else final_id == top_with,
             "final_has_library_crash": bool(final_id and genomes.get(final_id, {}).get("fitness", {}).get("library_crash")),
             "generations_run": m.get("generations_run"),

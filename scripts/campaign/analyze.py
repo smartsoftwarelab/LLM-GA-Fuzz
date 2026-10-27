@@ -8,6 +8,7 @@ The mixed-effects model needs statsmodels (optional; skipped with a note if miss
 """
 import argparse
 import csv
+import math
 import sys
 from pathlib import Path
 
@@ -44,22 +45,26 @@ VARIANTS = [("final", "final best")]
 if any(r["nobonus_status"] for r in rows):
     VARIANTS.append(("nobonus", "final best without crash bonus (post-hoc)"))
 for arm, (var, title) in [(a, v) for a in arms for v in VARIANTS]:
-    lines += [f"## Arm `{arm}`: {title} vs. generation-0 best (branch coverage, %)", "",
-              "| target | runs | gen0 median [IQR] | final median [IQR] | improvement median | A12(final,gen0) | final>gen0 / = / < |",
-              "|---|---|---|---|---|---|---|"]
+    lines += [f"## Arm `{arm}`: {title} vs. generation-0 best (covered branches)", "",
+              "| target | runs | gen0 median [IQR] | final median [IQR] | branches in scope gen0 / final (median) | "
+              "improvement median | A12(final,gen0) | final>gen0 / = / < |",
+              "|---|---|---|---|---|---|---|---|"]
     improvements[(arm, var)] = {}
     for project in sorted({r["project"] for r in rows if r["arm"] == arm}):
         rs = [r for r in rows if r["arm"] == arm and r["project"] == project
               and r["gen0_status"] in MEASURED and r[f"{var}_status"] in MEASURED]
-        g0 = [r["gen0_pct"] for r in rs]
-        fb = [r[f"{var}_pct"] for r in rs]
+        g0 = [r["gen0_covered"] for r in rs]
+        fb = [r[f"{var}_covered"] for r in rs]
+        t0, tf = median_iqr([r["gen0_total"] for r in rs])[0], median_iqr([r[f"{var}_total"] for r in rs])[0]
         imp = [x for x in (rel_improvement(r["gen0_covered"], r[f"{var}_covered"]) for r in rs) if x is not None]
         improvements[(arm, var)][project] = imp
         (gm, g1, g3), (fm, f1, f3), (im, _, _) = median_iqr(g0), median_iqr(fb), median_iqr(imp)
         eff = a12(fb, g0)
         signs = (sum(f > g for f, g in zip(fb, g0)), sum(f == g for f, g in zip(fb, g0)), sum(f < g for f, g in zip(fb, g0)))
         fmt = lambda v: "-" if v is None else f"{v:.2f}"  # noqa: E731
-        lines.append(f"| {project} | {len(rs)} | {fmt(gm)} [{fmt(g1)}, {fmt(g3)}] | {fmt(fm)} [{fmt(f1)}, {fmt(f3)}] | "
+        cnt = lambda v: "-" if v is None else f"{v:g}"  # noqa: E731
+        lines.append(f"| {project} | {len(rs)} | {cnt(gm)} [{cnt(g1)}, {cnt(g3)}] | {cnt(fm)} [{cnt(f1)}, {cnt(f3)}] | "
+                     f"{cnt(t0)} / {cnt(tf)} | "
                      f"{'-' if im is None else f'{im * 100:+.1f}%'} | {fmt(eff)} | {signs[0]}/{signs[1]}/{signs[2]} |")
         per_target_rows.append({"arm": arm, "variant": var, "target": project, "runs": len(rs), "gen0_median": gm, "final_median": fm,
                                 "improvement_median": im, "a12_final_vs_gen0": eff,
@@ -80,7 +85,7 @@ with (report / "per_target.csv").open("w", newline="") as f:
     w.writeheader()
     w.writerows(per_target_rows)
 
-# ---- mixed-effects model: coverage ~ variant, random intercept target, run nested in target ----
+# ---- mixed-effects model: log(1 + covered) ~ variant, random intercept target, run nested in target ----
 try:
     import pandas as pd
     import statsmodels.formula.api as smf
@@ -88,15 +93,15 @@ try:
         long = []
         for r in rows:
             if r["arm"] == arm and r["gen0_status"] in MEASURED and r["final_status"] in MEASURED:
-                long += [{"target": r["project"], "run": f"{r['project']}_{r['rep']}", "variant": v, "pct": r[f"{v}_pct"]}
-                         for v in ("gen0", "final")]
+                long += [{"target": r["project"], "run": f"{r['project']}_{r['rep']}", "variant": v,
+                          "y": math.log1p(r[f"{v}_covered"])} for v in ("gen0", "final")]
         df = pd.DataFrame(long)
-        model = smf.mixedlm("pct ~ C(variant, Treatment('gen0'))", df, groups=df["target"],
+        model = smf.mixedlm("y ~ C(variant, Treatment('gen0'))", df, groups=df["target"],
                             vc_formula={"run": "0 + C(run)"}).fit(reml=True)
         name = [p for p in model.params.index if "variant" in p][0]
         ci = model.conf_int().loc[name]
-        lines += [f"Mixed model (`{arm}`): final - gen0 = {model.params[name]:+.3f} pp "
-                  f"(95% CI {ci[0]:+.3f} .. {ci[1]:+.3f}, p = {model.pvalues[name]:.4f}); "
+        lines += [f"Mixed model (`{arm}`, log(1 + covered branches)): final / gen0 = x{math.exp(model.params[name]):.3f} "
+                  f"(95% CI x{math.exp(ci[0]):.3f} .. x{math.exp(ci[1]):.3f}, p = {model.pvalues[name]:.4f}); "
                   f"groups: {df['target'].nunique()} targets, {df['run'].nunique()} runs", ""]
 except ImportError as exc:
     lines += [f"Mixed model skipped: {exc} (pip install statsmodels)", ""]
@@ -105,13 +110,19 @@ except Exception as exc:  # e.g. too few targets for the variance components
 
 # ---- ablation: final best of each arm vs. full, same targets ----------------------------------
 if "full" in arms and len(arms) > 1:
-    lines += ["## Ablations: final best coverage vs. `full` (A12 = P(full > arm))", "", "| arm | target | A12 |", "|---|---|---|"]
+    lines += ["## Ablations: per-run improvement over the run's own gen-0 best (A12 = P(full > arm))", "",
+              "| arm | target | runs full / arm | improvement median full | improvement median arm | A12 |",
+              "|---|---|---|---|---|---|"]
+    pct = lambda v: "-" if v is None else f"{v * 100:+.1f}%"  # noqa: E731
     for arm in [a for a in arms if a != "full"]:
         for project in sorted({r["project"] for r in rows if r["arm"] == arm}):
-            fa = [r["final_pct"] for r in rows if r["arm"] == "full" and r["project"] == project and r["final_status"] in MEASURED]
-            fx = [r["final_pct"] for r in rows if r["arm"] == arm and r["project"] == project and r["final_status"] in MEASURED]
-            v = a12(fa, fx)
-            lines.append(f"| {arm} | {project} | {'-' if v is None else f'{v:.2f}'} |")
+            ia, ix = ([x for x in (rel_improvement(r["gen0_covered"], r["final_covered"]) for r in rows
+                                   if r["arm"] == a and r["project"] == project
+                                   and r["gen0_status"] in MEASURED and r["final_status"] in MEASURED) if x is not None]
+                      for a in ("full", arm))
+            v = a12(ia, ix)
+            lines.append(f"| {arm} | {project} | {len(ia)} / {len(ix)} | {pct(median_iqr(ia)[0])} | {pct(median_iqr(ix)[0])} | "
+                         f"{'-' if v is None else f'{v:.2f}'} |")
     lines.append("")
 
 # ---- cost, time, crashes, strategy rules ---------------------------------------------------------
