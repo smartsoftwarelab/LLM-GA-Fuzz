@@ -65,9 +65,12 @@ for arm, (var, title) in [(a, v) for a in arms for v in VARIANTS]:
                                 "improvement_median": im, "a12_final_vs_gen0": eff,
                                 "final_gt": signs[0], "eq": signs[1], "final_lt": signs[2]})
     point, lo, hi = hier_bootstrap_median(improvements[(arm, var)])
-    unmeasured = sum(1 for r in rows if r["arm"] == arm and not (r["gen0_status"] in MEASURED and r[f"{var}_status"] in MEASURED))
+    no_harness = sum(1 for r in rows if r["arm"] == arm and r["no_compiled_initial_harness"])
+    unmeasured = sum(1 for r in rows if r["arm"] == arm and not r["no_compiled_initial_harness"]
+                     and not (r["gen0_status"] in MEASURED and r[f"{var}_status"] in MEASURED))
     lines += ["", f"Campaign improvement (median of target medians): "
               + ("-" if point is None else f"{point * 100:+.1f}% (95% hierarchical bootstrap CI {lo * 100:+.1f}% .. {hi * 100:+.1f}%)"),
+              f"Runs excluded because no initial harness compiled (no evolution possible): {no_harness}",
               f"Runs excluded because a coverage measurement failed (status not OK/NO_COVERAGE/CRASHED_EMPTY): {unmeasured}",
               f"Runs where a harness crashed and kept no corpus input (counted as 0 covered): "
               f"{sum(1 for r in rows if r['arm'] == arm and 'CRASHED_EMPTY' in (r['gen0_status'], r[f'{var}_status']))}", ""]

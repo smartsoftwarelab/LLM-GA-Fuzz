@@ -99,7 +99,8 @@ def coverage_or_zero(rec: Optional[dict], other: Optional[dict]) -> dict:
     c = dict(_cov(rec))
     if c.get("status") == "EMPTY_CORPUS" and (rec or {}).get("fuzz_result") == "Crash":
         total = c.get("total") or _cov(other).get("total")
-        c.update(status="CRASHED_EMPTY", covered=0, total=total, percent=0.0 if total else None)
+        if total:      # without a denominator there is no percentage: stays EMPTY_CORPUS (excluded)
+            c.update(status="CRASHED_EMPTY", covered=0, total=total, percent=0.0)
     return c
 
 
@@ -131,6 +132,7 @@ def load_runs(out_dir: Path, arm: str) -> list[dict[str, Any]]:
             "final_status": fb.get("status"), "final_covered": fb.get("covered"), "final_total": fb.get("total"),
             "final_pct": fb.get("percent"),
             "final_is_gen0": bool(ev.get("final_best", {}).get("reused_from")),
+            "no_compiled_initial_harness": (ev.get("gen0_best") or {}).get("genome_id") is None,
             "nobonus_status": nb.get("status"), "nobonus_covered": nb.get("covered"), "nobonus_pct": nb.get("percent"),
             "final_matches_recomputed_top": None if final_id is None else final_id == top_with,
             "final_has_library_crash": bool(final_id and genomes.get(final_id, {}).get("fitness", {}).get("library_crash")),

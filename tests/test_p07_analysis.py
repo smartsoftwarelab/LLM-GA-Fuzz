@@ -65,3 +65,5 @@ def test_crashed_empty_corpus_counts_as_zero_not_excluded():
     assert coverage_or_zero(infra, g0)["status"] == "EMPTY_CORPUS"          # not a result: stays excluded
     assert coverage_or_zero(g0, crashed) == g0["coverage"]
     assert coverage_or_zero(None, g0) == {}
+    # PATCH 11: both harnesses crashed and neither has a total -> no percentage, stays excluded
+    assert coverage_or_zero(crashed, crashed)["status"] == "EMPTY_CORPUS"

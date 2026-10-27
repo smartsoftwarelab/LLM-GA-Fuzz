@@ -1,0 +1,50 @@
+diff --git a/scripts/campaign/analyze.py b/scripts/campaign/analyze.py
+index 36749ac..dac72f9 100644
+--- a/scripts/campaign/analyze.py
++++ b/scripts/campaign/analyze.py
+@@ -65,9 +65,12 @@ for arm, (var, title) in [(a, v) for a in arms for v in VARIANTS]:
+                                 "improvement_median": im, "a12_final_vs_gen0": eff,
+                                 "final_gt": signs[0], "eq": signs[1], "final_lt": signs[2]})
+     point, lo, hi = hier_bootstrap_median(improvements[(arm, var)])
+-    unmeasured = sum(1 for r in rows if r["arm"] == arm and not (r["gen0_status"] in MEASURED and r[f"{var}_status"] in MEASURED))
++    no_harness = sum(1 for r in rows if r["arm"] == arm and r["no_compiled_initial_harness"])
++    unmeasured = sum(1 for r in rows if r["arm"] == arm and not r["no_compiled_initial_harness"]
++                     and not (r["gen0_status"] in MEASURED and r[f"{var}_status"] in MEASURED))
+     lines += ["", f"Campaign improvement (median of target medians): "
+               + ("-" if point is None else f"{point * 100:+.1f}% (95% hierarchical bootstrap CI {lo * 100:+.1f}% .. {hi * 100:+.1f}%)"),
++              f"Runs excluded because no initial harness compiled (no evolution possible): {no_harness}",
+               f"Runs excluded because a coverage measurement failed (status not OK/NO_COVERAGE/CRASHED_EMPTY): {unmeasured}",
+               f"Runs where a harness crashed and kept no corpus input (counted as 0 covered): "
+               f"{sum(1 for r in rows if r['arm'] == arm and 'CRASHED_EMPTY' in (r['gen0_status'], r[f'{var}_status']))}", ""]
+diff --git a/tests/test_p07_analysis.py b/tests/test_p07_analysis.py
+index e9d8e33..286cc1b 100644
+--- a/tests/test_p07_analysis.py
++++ b/tests/test_p07_analysis.py
+@@ -65,3 +65,5 @@ def test_crashed_empty_corpus_counts_as_zero_not_excluded():
+     assert coverage_or_zero(infra, g0)["status"] == "EMPTY_CORPUS"          # not a result: stays excluded
+     assert coverage_or_zero(g0, crashed) == g0["coverage"]
+     assert coverage_or_zero(None, g0) == {}
++    # PATCH 11: both harnesses crashed and neither has a total -> no percentage, stays excluded
++    assert coverage_or_zero(crashed, crashed)["status"] == "EMPTY_CORPUS"
+diff --git a/utils/analysis.py b/utils/analysis.py
+index f2bded1..3306128 100644
+--- a/utils/analysis.py
++++ b/utils/analysis.py
+@@ -99,7 +99,8 @@ def coverage_or_zero(rec: Optional[dict], other: Optional[dict]) -> dict:
+     c = dict(_cov(rec))
+     if c.get("status") == "EMPTY_CORPUS" and (rec or {}).get("fuzz_result") == "Crash":
+         total = c.get("total") or _cov(other).get("total")
+-        c.update(status="CRASHED_EMPTY", covered=0, total=total, percent=0.0 if total else None)
++        if total:      # without a denominator there is no percentage: stays EMPTY_CORPUS (excluded)
++            c.update(status="CRASHED_EMPTY", covered=0, total=total, percent=0.0)
+     return c
+ 
+ 
+@@ -131,6 +132,7 @@ def load_runs(out_dir: Path, arm: str) -> list[dict[str, Any]]:
+             "final_status": fb.get("status"), "final_covered": fb.get("covered"), "final_total": fb.get("total"),
+             "final_pct": fb.get("percent"),
+             "final_is_gen0": bool(ev.get("final_best", {}).get("reused_from")),
++            "no_compiled_initial_harness": (ev.get("gen0_best") or {}).get("genome_id") is None,
+             "nobonus_status": nb.get("status"), "nobonus_covered": nb.get("covered"), "nobonus_pct": nb.get("percent"),
+             "final_matches_recomputed_top": None if final_id is None else final_id == top_with,
+             "final_has_library_crash": bool(final_id and genomes.get(final_id, {}).get("fitness", {}).get("library_crash")),
